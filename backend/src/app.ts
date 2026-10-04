@@ -37,6 +37,8 @@ import { documentsRouter } from './modules/documents/documents.routes';
 import { paymentsRouter } from './modules/payments/payments.routes';
 import { billsRouter } from './modules/bills/bills.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
+import dashboardRouter from './modules/dashboard/dashboard.routes';
+import searchRouter from './modules/search/search.routes';
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -50,6 +52,8 @@ app.use('/api/documents', documentsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/bills', billsRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/dashboard', dashboardRouter);
+app.use('/api/search', searchRouter);
 
 // 404 handler
 app.use((req, res, next) => {

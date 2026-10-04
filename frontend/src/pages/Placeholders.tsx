@@ -23,7 +23,7 @@ export const LoginPage = () => {
 };
 
 
-export const TripsPage = () => <PageContainer title="Trips">Trips Module Placeholder</PageContainer>;
+
 export const TripFormPage = () => <PageContainer title="New Trip">New Trip Form Placeholder</PageContainer>;
 export const TripDetailsPage = () => <PageContainer title="Trip Details">Trip Details Placeholder</PageContainer>;
 export const PartiesPage = () => <PageContainer title="Parties">Parties Module Placeholder</PageContainer>;

@@ -36,6 +36,7 @@ import { tripsRouter } from './modules/trips/trips.routes';
 import { documentsRouter } from './modules/documents/documents.routes';
 import { paymentsRouter } from './modules/payments/payments.routes';
 import { billsRouter } from './modules/bills/bills.routes';
+import { reportsRouter } from './modules/reports/reports.routes';
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -48,6 +49,7 @@ app.use('/api/trips', tripsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/bills', billsRouter);
+app.use('/api/reports', reportsRouter);
 
 // 404 handler
 app.use((req, res, next) => {

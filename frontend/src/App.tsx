@@ -6,6 +6,7 @@ import { AppLayout } from './layouts/AppLayout';
 import { AuthLayout } from './layouts/AuthLayout';
 import { useAuthStore, type UserRole } from './store/authStore';
 import * as Pages from './pages/Placeholders';
+import DashboardPage from './pages/Dashboard';
 
 const queryClient = new QueryClient();
 
@@ -29,7 +30,7 @@ function App() {
 
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Pages.DashboardPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
               
               <Route path="/trips" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.TripsPage /></ProtectedRoute>} />
               <Route path="/trips/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.TripFormPage /></ProtectedRoute>} />

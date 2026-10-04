@@ -35,6 +35,7 @@ import { ofRouter } from './modules/own-fleet/of.routes';
 import { tripsRouter } from './modules/trips/trips.routes';
 import { documentsRouter } from './modules/documents/documents.routes';
 import { paymentsRouter } from './modules/payments/payments.routes';
+import { billsRouter } from './modules/bills/bills.routes';
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -46,6 +47,7 @@ app.use('/api/own-fleet', ofRouter);
 app.use('/api/trips', tripsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/bills', billsRouter);
 
 // 404 handler
 app.use((req, res, next) => {

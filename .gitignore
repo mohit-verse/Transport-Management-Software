@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.env
+.DS_Store
+fix*.js
+db_scratch/
+logfile
+coverage/

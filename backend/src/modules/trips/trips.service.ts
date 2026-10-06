@@ -45,6 +45,75 @@ export const getTrips = async () => {
   return res.rows;
 };
 
+export const updateCoreTrip = async (id: string, data: any, userId: string) => {
+  return withTransaction(async (client) => {
+    const tripRes = await client.query('SELECT * FROM trips WHERE id = $1', [id]);
+    if (tripRes.rows.length === 0) throw new AppError('NOT_FOUND', 'Trip not found', 404);
+    const oldTrip = tripRes.rows[0];
+
+    const updates: string[] = [];
+    const values: any[] = [];
+    const allowedFields = [
+      'driver_mobile_number', 'lr_number', 'invoice_number', 'trip_date',
+      'loading_date', 'unloading_date', 'origin', 'destination'
+    ];
+
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        values.push(data[field]);
+        updates.push(`${field} = $${values.length}`);
+      }
+    }
+
+    let updatedTrip = oldTrip;
+    if (updates.length > 0) {
+      values.push(id);
+      const updateQuery = `UPDATE trips SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING *`;
+      const res = await client.query(updateQuery, values);
+      updatedTrip = res.rows[0];
+    }
+
+    if (data.destinations && Array.isArray(data.destinations)) {
+      const existingDests = await client.query('SELECT * FROM trip_destinations WHERE trip_id = $1', [id]);
+      const existingIds = existingDests.rows.map(r => r.id);
+      
+      const newDests = data.destinations;
+      const newIds = newDests.filter((d: any) => d.id).map((d: any) => d.id);
+
+      const toDelete = existingIds.filter(id => !newIds.includes(id));
+      for (const destId of toDelete) {
+        try {
+          await client.query('DELETE FROM trip_destinations WHERE id = $1', [destId]);
+        } catch (error: any) {
+          if (error.code === '23503') {
+            throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot remove destination with linked financial records', 400);
+          }
+          throw error;
+        }
+      }
+
+      for (let i = 0; i < newDests.length; i++) {
+        const dest = newDests[i];
+        const seq = i + 1;
+        if (dest.id) {
+          await client.query(
+            'UPDATE trip_destinations SET sequence_no = $1, from_location = $2, to_location = $3, distance_km = $4 WHERE id = $5',
+            [seq, dest.from_location, dest.to_location, dest.distance_km || null, dest.id]
+          );
+        } else {
+          await client.query(
+            'INSERT INTO trip_destinations (trip_id, sequence_no, from_location, to_location, distance_km) VALUES ($1, $2, $3, $4, $5)',
+            [id, seq, dest.from_location, dest.to_location, dest.distance_km || null]
+          );
+        }
+      }
+    }
+
+    await createAudit({ entityType: 'TRIP', entityId: id, action: 'UPDATE_CORE', newState: updatedTrip, userId }, client);
+    return updatedTrip;
+  });
+};
+
 export const updateStatus = async (id: string, status: string, userId: string) => {
   const res = await query('UPDATE trips SET trip_status = $2, updated_at = NOW() WHERE id = $1 RETURNING *', [id, status]);
   if (res.rows.length === 0) throw new AppError('NOT_FOUND', 'Trip not found', 404);

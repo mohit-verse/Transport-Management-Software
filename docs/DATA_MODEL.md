@@ -399,6 +399,7 @@ Each destination is stored as a structured entry rather than being stored only a
 - Party-side unloading charges can differ from vehicle-owner-side charges.
 - Own-fleet unloading expenses are attached to the destination.
 - Destination order must be preserved.
+- Destination identity is persistent. Existing destinations are edited in place. Removal is rejected when linked financial records exist.
 
 ---
 

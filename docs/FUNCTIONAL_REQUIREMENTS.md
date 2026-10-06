@@ -605,7 +605,7 @@ Each destination contains:
 - Vehicle-owner unloading charge
 - Own Fleet unloading expense where applicable
 
-Multiple destinations must be supported.
+Multiple destinations must be supported. Destination identity is persistent. Existing destinations are edited in place. Removal is rejected when linked financial records exist.
 
 ---
 

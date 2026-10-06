@@ -24,6 +24,7 @@ _Note: CA role is excluded from operational navigation._
 | `/trips` | Owner, Staff | App | `GET /api/trips` | List, filter, and search trips. |
 | `/trips/new` | Owner, Staff | App | `POST /api/trips` | Form to create a new trip. |
 | `/trips/:id` | Owner, Staff | App | `GET /api/trips/:id` | Complete trip details, workflow actions, financials, PODs. |
+| `/trips/:id/edit` | Owner, Staff | App | `PATCH /api/trips/:id` | Edit trip core details and destinations. |
 | `/parties` | Owner, Staff, CA*| App | `GET /api/parties` | List Parties/Companies. (*CA access via deep link from finance context). |
 | `/parties/:id` | Owner, Staff, CA*| App | `GET /api/parties/:id` | Party details, history, financial position. |
 | `/vehicle-owners` | Owner, Staff | App | `GET /api/vehicle-owners` | List Vehicle Owners. |

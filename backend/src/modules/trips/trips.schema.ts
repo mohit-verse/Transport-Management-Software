@@ -19,6 +19,25 @@ export const createTripSchema = z.object({
   })
 });
 
+export const updateCoreTripSchema = z.object({
+  body: z.object({
+    driver_mobile_number: z.string().nullable().optional(),
+    lr_number: z.string().nullable().optional(),
+    invoice_number: z.string().nullable().optional(),
+    trip_date: z.string().optional(),
+    loading_date: z.string().nullable().optional(),
+    unloading_date: z.string().nullable().optional(),
+    origin: z.string().nullable().optional(),
+    destination: z.string().nullable().optional(),
+    destinations: z.array(z.object({
+      id: z.string().uuid().optional(),
+      from_location: z.string(),
+      to_location: z.string(),
+      distance_km: z.number().nullable().optional()
+    })).optional()
+  })
+});
+
 export const updateStatusSchema = z.object({
   body: z.object({
     status: z.enum(['CREATED', 'LOADING', 'IN_TRANSIT', 'COMPLETED', 'SETTLED', 'CANCELLED'])

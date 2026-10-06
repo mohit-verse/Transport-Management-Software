@@ -316,7 +316,7 @@ Each destination can contain:
 - Vehicle-owner Unloading Charge where applicable.
 - Own-fleet Unloading Expense where applicable.
 
-Destination sequence must be preserved.
+Destination sequence must be preserved. Destination identity is persistent. Existing destinations are edited in place. Removal is rejected when linked financial records exist.
 
 ---
 

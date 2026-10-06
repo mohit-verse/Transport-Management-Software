@@ -350,6 +350,7 @@ Only fields permitted by the user's role and record state may be modified.
 Financial changes must create audit history.
 
 Payment records must not be silently created or modified as a side effect of editing trip obligations.
+Destination identity is persistent. Existing destinations are edited in place. Removal is rejected when linked financial records exist.
 
 ---
 

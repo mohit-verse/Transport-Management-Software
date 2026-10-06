@@ -92,3 +92,27 @@ describe('Trip Core Update', () => {
     expect(res.body.error.message).toContain('Cannot remove destination with linked financial records');
   });
 });
+
+describe('Trip Detail Read API', () => {
+  it('should fetch complete trip details', async () => {
+    const res = await request(app)
+      .get(`/api/trips/${tripId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.id).toBe(tripId);
+    expect(res.body.data.party.id).toBe(partyId);
+    expect(res.body.data.destinations.length).toBeGreaterThan(0);
+    expect(res.body.data.financials).toBeDefined();
+  });
+  
+  it('should return 404 for non-existent trip', async () => {
+    const fakeId = '11111111-1111-1111-1111-111111111111';
+    const res = await request(app)
+      .get(`/api/trips/${fakeId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    
+    expect(res.status).toBe(404);
+  });
+});

@@ -40,6 +40,79 @@ export const createTrip = async (data: any, userId: string) => {
   });
 };
 
+export const getTripById = async (id: string) => {
+  const tripRes = await query(`
+    SELECT t.*, 
+      p.name as party_name,
+      mv.vehicle_number as market_vehicle_number,
+      vo.owner_name as vehicle_owner_name,
+      ofv.vehicle_number as own_fleet_vehicle_number
+    FROM trips t
+    LEFT JOIN parties p ON t.party_id = p.id
+    LEFT JOIN market_vehicles mv ON t.market_vehicle_id = mv.id
+    LEFT JOIN vehicle_owners vo ON t.vehicle_owner_id = vo.id
+    LEFT JOIN own_fleet_vehicles ofv ON t.own_fleet_vehicle_id = ofv.id
+    WHERE t.id = $1
+  `, [id]);
+
+  if (tripRes.rows.length === 0) {
+    throw new AppError('NOT_FOUND', 'Trip not found', 404);
+  }
+  const trip = tripRes.rows[0];
+
+  const destinationsRes = await query('SELECT * FROM trip_destinations WHERE trip_id = $1 ORDER BY sequence_no ASC', [id]);
+  const partyFinancialsRes = await query('SELECT * FROM trip_party_financials WHERE trip_id = $1', [id]);
+  const ownerFinancialsRes = await query('SELECT * FROM trip_vehicle_owner_financials WHERE trip_id = $1', [id]);
+  const otherChargesRes = await query('SELECT * FROM trip_other_charges WHERE trip_id = $1', [id]);
+  const deductionsRes = await query('SELECT * FROM trip_deductions WHERE trip_id = $1', [id]);
+  const unloadingChargesRes = await query('SELECT * FROM trip_unloading_charges WHERE trip_id = $1', [id]);
+  
+  const podRes = await query('SELECT * FROM trip_pods WHERE trip_id = $1', [id]);
+  const issuesRes = await query('SELECT * FROM trip_issues WHERE trip_id = $1', [id]);
+
+  const billsRes = await query(`
+    SELECT DISTINCT b.*
+    FROM bills b
+    JOIN bill_items bi ON b.id = bi.bill_id
+    WHERE bi.trip_id = $1
+  `, [id]);
+
+  const paymentsRes = await query(`
+    SELECT p.*, pa.allocation_amount, pa.allocation_type 
+    FROM payments p
+    JOIN payment_allocations pa ON p.id = pa.payment_id
+    WHERE pa.trip_id = $1
+  `, [id]);
+
+  const documentsRes = await query(`
+    SELECT d.*, dl.link_type
+    FROM documents d
+    JOIN document_links dl ON d.id = dl.document_id
+    WHERE dl.entity_type = 'TRIP' AND dl.entity_id = $1
+  `, [id]);
+
+  return {
+    ...trip,
+    party: trip.party_id ? { id: trip.party_id, name: trip.party_name } : null,
+    market_vehicle: trip.market_vehicle_id ? { id: trip.market_vehicle_id, vehicle_number: trip.market_vehicle_number } : null,
+    vehicle_owner: trip.vehicle_owner_id ? { id: trip.vehicle_owner_id, owner_name: trip.vehicle_owner_name } : null,
+    own_fleet_vehicle: trip.own_fleet_vehicle_id ? { id: trip.own_fleet_vehicle_id, vehicle_number: trip.own_fleet_vehicle_number } : null,
+    destinations: destinationsRes.rows,
+    financials: {
+      party: partyFinancialsRes.rows[0] || null,
+      vehicle_owner: ownerFinancialsRes.rows[0] || null,
+      other_charges: otherChargesRes.rows,
+      deductions: deductionsRes.rows,
+      unloading_charges: unloadingChargesRes.rows
+    },
+    pod: podRes.rows[0] || null,
+    issues: issuesRes.rows,
+    bills: billsRes.rows,
+    payments: paymentsRes.rows,
+    documents: documentsRes.rows
+  };
+};
+
 export const getTrips = async () => {
   const res = await query('SELECT * FROM trips ORDER BY created_at DESC');
   return res.rows;

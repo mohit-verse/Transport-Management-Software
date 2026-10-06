@@ -943,7 +943,15 @@ GET /api/documents
 GET /api/documents/:id
 ```
 
-## 22.3 Upload
+## 22.3 Download Document File
+
+```http
+GET /api/documents/:id/file
+```
+
+Streams the actual file securely after validating authentication and entity-relationship authorization.
+
+## 22.4 Upload
 
 ```http
 POST /api/documents
@@ -951,7 +959,7 @@ POST /api/documents
 
 Upload authorization must be checked against the related record.
 
-## 22.4 Replace
+## 22.5 Replace
 
 Where permitted:
 
@@ -959,7 +967,7 @@ Where permitted:
 POST /api/documents/:id/replace
 ```
 
-## 22.5 Delete
+## 22.6 Delete
 
 Owner-only where deletion is permitted:
 

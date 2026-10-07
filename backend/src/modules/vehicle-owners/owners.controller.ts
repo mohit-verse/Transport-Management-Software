@@ -23,6 +23,34 @@ export const get = async (req: Request, res: Response, next: NextFunction) => {
   } catch (error) { next(error); }
 };
 
+export const getFinancials = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await service.getOwnerFinancials(req.params.id as string);
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
+};
+
+export const getVehicles = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await service.getOwnerVehicles(req.params.id as string);
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
+};
+
+export const getTrips = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await service.getOwnerTrips(req.params.id as string);
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
+};
+
+export const getPayments = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await service.getOwnerPayments(req.params.id as string);
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
+};
+
 export const update = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const owner = await service.updateOwner((req.params.id as string), req.body, req.user!.id);

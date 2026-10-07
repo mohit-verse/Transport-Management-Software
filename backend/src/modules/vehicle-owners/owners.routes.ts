@@ -13,5 +13,10 @@ ownersRouter.use(authenticate);
 ownersRouter.get('/', requireRole(['OWNER', 'STAFF', 'CA']), controller.list);
 ownersRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.get);
 
+ownersRouter.get('/:id/financials', requireRole(['OWNER', 'STAFF', 'CA']), controller.getFinancials);
+ownersRouter.get('/:id/vehicles', requireRole(['OWNER', 'STAFF', 'CA']), controller.getVehicles);
+ownersRouter.get('/:id/trips', requireRole(['OWNER', 'STAFF', 'CA']), controller.getTrips);
+ownersRouter.get('/:id/payments', requireRole(['OWNER', 'STAFF', 'CA']), controller.getPayments);
+
 ownersRouter.post('/', requireRole(['OWNER', 'STAFF']), validateRequest(schema.createOwnerSchema), controller.create);
 ownersRouter.patch('/:id', requireRole(['OWNER', 'STAFF']), validateRequest(schema.updateOwnerSchema), controller.update);

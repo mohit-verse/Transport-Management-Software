@@ -1,4 +1,3 @@
-
 import { query } from '../../db';
 import { AppError } from '../../errors/AppError';
 import { createAudit } from '../../utils/audit';
@@ -17,7 +16,7 @@ export const createVehicle = async (data: any, userId: string) => {
 
 export const getVehicles = async () => {
   const res = await query(`
-    SELECT m.id, m.vehicle_number, m.vehicle_type, m.vehicle_owner_id, o.name as owner_name 
+    SELECT m.id, m.vehicle_number, m.vehicle_type, m.vehicle_owner_id, o.name as owner_name, o.mobile_number as owner_mobile_number
     FROM market_vehicles m
     JOIN vehicle_owners o ON m.vehicle_owner_id = o.id
     ORDER BY m.created_at DESC
@@ -26,13 +25,38 @@ export const getVehicles = async () => {
 };
 
 export const getVehicleById = async (id: string) => {
-  const res = await query('SELECT * FROM market_vehicles WHERE id = $1', [id]);
+  const res = await query(`
+    SELECT 
+      m.id, 
+      m.vehicle_number, 
+      m.vehicle_type, 
+      m.vehicle_owner_id, 
+      o.name as owner_name,
+      o.mobile_number as owner_mobile_number
+    FROM market_vehicles m
+    JOIN vehicle_owners o ON m.vehicle_owner_id = o.id
+    WHERE m.id = $1
+  `, [id]);
   if (res.rows.length === 0) throw new AppError('NOT_FOUND', 'Market Vehicle not found', 404);
-  return res.rows[0];
+  
+  const tripsRes = await query(`
+    SELECT id, trip_number, trip_date, origin, destination, loading_date, unloading_date, trip_status as status
+    FROM trips
+    WHERE market_vehicle_id = $1
+    ORDER BY created_at DESC
+  `, [id]);
+
+  return {
+    ...res.rows[0],
+    trips: tripsRes.rows
+  };
 };
 
 export const updateVehicle = async (id: string, data: any, userId: string) => {
-  const existing = await getVehicleById(id);
+  const existingRes = await query('SELECT * FROM market_vehicles WHERE id = $1', [id]);
+  if (existingRes.rows.length === 0) throw new AppError('NOT_FOUND', 'Market Vehicle not found', 404);
+  const existing = existingRes.rows[0];
+
   const fields = Object.keys(data).filter(k => data[k] !== undefined);
   if (fields.length === 0) return existing;
 

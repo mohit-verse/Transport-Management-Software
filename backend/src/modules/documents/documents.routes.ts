@@ -10,3 +10,6 @@ export const documentsRouter = Router();
 documentsRouter.use(authenticate);
 
 documentsRouter.post('/pod', requireRole(['OWNER', 'STAFF']), validateRequest(schema.uploadPODSchema), controller.upload);
+documentsRouter.get('/', requireRole(['OWNER', 'STAFF', 'CA']), controller.list);
+documentsRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.getMetadata);
+documentsRouter.get('/:id/file', requireRole(['OWNER', 'STAFF', 'CA']), controller.getFile);

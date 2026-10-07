@@ -10,6 +10,7 @@ import DashboardPage from './pages/Dashboard';
 import TripsPage from './pages/Trips';
 import CreateTrip from './pages/CreateTrip';
 import EditTrip from './pages/EditTrip';
+import TripDetails from './pages/TripDetails';
 
 const queryClient = new QueryClient();
 
@@ -38,7 +39,7 @@ function App() {
               <Route path="/trips" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><TripsPage /></ProtectedRoute>} />
               <Route path="/trips/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateTrip /></ProtectedRoute>} />
               <Route path="/trips/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditTrip /></ProtectedRoute>} />
-              <Route path="/trips/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.TripDetailsPage /></ProtectedRoute>} />
+              <Route path="/trips/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><TripDetails /></ProtectedRoute>} />
               
               <Route path="/parties" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.PartiesPage /></ProtectedRoute>} />
               <Route path="/parties/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.PartyDetailsPage /></ProtectedRoute>} />

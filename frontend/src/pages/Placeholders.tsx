@@ -29,7 +29,6 @@ export const PartiesPage = () => <PageContainer title="Parties">Parties Module P
 export const PartyDetailsPage = () => <PageContainer title="Party Details">Party Details Placeholder</PageContainer>;
 export const VehicleOwnersPage = () => <PageContainer title="Vehicle Owners">Vehicle Owners Module Placeholder</PageContainer>;
 export const VehicleOwnerDetailsPage = () => <PageContainer title="Vehicle Owner Details">Vehicle Owner Details Placeholder</PageContainer>;
-export const MarketVehiclesPage = () => <PageContainer title="Market Vehicles">Market Vehicles Module Placeholder</PageContainer>;
 export const OwnFleetPage = () => <PageContainer title="Own Fleet">Own Fleet Module Placeholder</PageContainer>;
 export const OwnFleetDetailsPage = () => <PageContainer title="Own Fleet Vehicle Details">Own Fleet Vehicle Details Placeholder</PageContainer>;
 export const PaymentsPage = () => <PageContainer title="Payments">Payments Module Placeholder</PageContainer>;

@@ -11,6 +11,10 @@ import TripsPage from './pages/Trips';
 import CreateTrip from './pages/CreateTrip';
 import EditTrip from './pages/EditTrip';
 import TripDetails from './pages/TripDetails';
+import MarketVehicles from './pages/MarketVehicles';
+import CreateMarketVehicle from './pages/CreateMarketVehicle';
+import EditMarketVehicle from './pages/EditMarketVehicle';
+import MarketVehicleDetail from './pages/MarketVehicleDetail';
 
 const queryClient = new QueryClient();
 
@@ -47,7 +51,10 @@ function App() {
               <Route path="/vehicle-owners" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnersPage /></ProtectedRoute>} />
               <Route path="/vehicle-owners/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnerDetailsPage /></ProtectedRoute>} />
               
-              <Route path="/market-vehicles" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.MarketVehiclesPage /></ProtectedRoute>} />
+              <Route path="/market-vehicles" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><MarketVehicles /></ProtectedRoute>} />
+              <Route path="/market-vehicles/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateMarketVehicle /></ProtectedRoute>} />
+              <Route path="/market-vehicles/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditMarketVehicle /></ProtectedRoute>} />
+              <Route path="/market-vehicles/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><MarketVehicleDetail /></ProtectedRoute>} />
               
               <Route path="/own-fleet" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.OwnFleetPage /></ProtectedRoute>} />
               <Route path="/own-fleet/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.OwnFleetDetailsPage /></ProtectedRoute>} />

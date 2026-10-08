@@ -15,6 +15,10 @@ import MarketVehicles from './pages/MarketVehicles';
 import CreateMarketVehicle from './pages/CreateMarketVehicle';
 import EditMarketVehicle from './pages/EditMarketVehicle';
 import MarketVehicleDetail from './pages/MarketVehicleDetail';
+import Parties from './pages/Parties';
+import CreateParty from './pages/CreateParty';
+import EditParty from './pages/EditParty';
+import PartyDetail from './pages/PartyDetail';
 
 const queryClient = new QueryClient();
 
@@ -45,8 +49,10 @@ function App() {
               <Route path="/trips/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditTrip /></ProtectedRoute>} />
               <Route path="/trips/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><TripDetails /></ProtectedRoute>} />
               
-              <Route path="/parties" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.PartiesPage /></ProtectedRoute>} />
-              <Route path="/parties/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.PartyDetailsPage /></ProtectedRoute>} />
+              <Route path="/parties" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Parties /></ProtectedRoute>} />
+              <Route path="/parties/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateParty /></ProtectedRoute>} />
+              <Route path="/parties/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditParty /></ProtectedRoute>} />
+              <Route path="/parties/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><PartyDetail /></ProtectedRoute>} />
               
               <Route path="/vehicle-owners" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnersPage /></ProtectedRoute>} />
               <Route path="/vehicle-owners/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnerDetailsPage /></ProtectedRoute>} />

@@ -78,3 +78,69 @@ export const updateMarketVehicle = async (id: string, data: Partial<MarketVehicl
   const response = await api.patch(`/api/market-vehicles/${id}`, data);
   return response.data;
 };
+
+
+export interface Party {
+  id: string;
+  party_type: 'COMPANY' | 'MARKET_PARTY';
+  name: string;
+  primary_mobile: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pin_code?: string;
+  gstin?: string;
+  pan_number?: string;
+  is_tds_applicable: boolean;
+  billing_configuration?: any;
+  current_balance?: number;
+  created_at: string;
+  updated_at: string;
+  outstanding?: number; // Depending on API response
+  credit?: number;
+}
+
+export const getParties = async (): Promise<{ success: boolean; data: Party[] }> => {
+  const response = await api.get('/api/parties');
+  return response.data;
+};
+
+export const getParty = async (id: string): Promise<{ success: boolean; data: Party }> => {
+  const response = await api.get(`/api/parties/${id}`);
+  return response.data;
+};
+
+export const createParty = async (data: Partial<Party>): Promise<{ success: boolean; data: Party }> => {
+  const response = await api.post('/api/parties', data);
+  return response.data;
+};
+
+export const updateParty = async (id: string, data: Partial<Party>): Promise<{ success: boolean; data: Party }> => {
+  const response = await api.patch(`/api/parties/${id}`, data);
+  return response.data;
+};
+
+export const getPartyFinancials = async (id: string): Promise<{ success: boolean; data: any }> => {
+  const response = await api.get(`/api/parties/${id}/financials`);
+  return response.data;
+};
+
+export const getPartyTrips = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/parties/${id}/trips`);
+  return response.data;
+};
+
+export const getPartyBills = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/parties/${id}/bills`);
+  return response.data;
+};
+
+export const getPartyPayments = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/parties/${id}/payments`);
+  return response.data;
+};
+
+export const updatePartyBillingConfig = async (id: string, billing_configuration: any): Promise<{ success: boolean; data: Party }> => {
+  const response = await api.patch(`/api/parties/${id}/billing-config`, { billing_configuration });
+  return response.data;
+};

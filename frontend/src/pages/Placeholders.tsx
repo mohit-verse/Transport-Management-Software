@@ -27,8 +27,7 @@ export const LoginPage = () => {
 export const TripFormPage = () => <PageContainer title="New Trip">New Trip Form Placeholder</PageContainer>;
 export const PartiesPage = () => <PageContainer title="Parties">Parties Module Placeholder</PageContainer>;
 export const PartyDetailsPage = () => <PageContainer title="Party Details">Party Details Placeholder</PageContainer>;
-export const OwnFleetPage = () => <PageContainer title="Own Fleet">Own Fleet Module Placeholder</PageContainer>;
-export const OwnFleetDetailsPage = () => <PageContainer title="Own Fleet Vehicle Details">Own Fleet Vehicle Details Placeholder</PageContainer>;
+
 export const PaymentsPage = () => <PageContainer title="Payments">Payments Module Placeholder</PageContainer>;
 export const PaymentFormPage = () => <PageContainer title="New Payment">New Payment Form Placeholder</PageContainer>;
 export const PaymentDetailsPage = () => <PageContainer title="Payment Details">Payment Details Placeholder</PageContainer>;

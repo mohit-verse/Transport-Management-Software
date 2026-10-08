@@ -23,7 +23,10 @@ import VehicleOwners from './pages/VehicleOwners';
 import CreateVehicleOwner from './pages/CreateVehicleOwner';
 import EditVehicleOwner from './pages/EditVehicleOwner';
 import VehicleOwnerDetail from './pages/VehicleOwnerDetail';
-
+import OwnFleet from './pages/OwnFleet';
+import CreateOwnFleet from './pages/CreateOwnFleet';
+import EditOwnFleet from './pages/EditOwnFleet';
+import OwnFleetDetail from './pages/OwnFleetDetail';
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: UserRole[] }) => {
@@ -68,8 +71,10 @@ function App() {
               <Route path="/market-vehicles/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditMarketVehicle /></ProtectedRoute>} />
               <Route path="/market-vehicles/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><MarketVehicleDetail /></ProtectedRoute>} />
               
-              <Route path="/own-fleet" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.OwnFleetPage /></ProtectedRoute>} />
-              <Route path="/own-fleet/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.OwnFleetDetailsPage /></ProtectedRoute>} />
+              <Route path="/own-fleet" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><OwnFleet /></ProtectedRoute>} />
+              <Route path="/own-fleet/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateOwnFleet /></ProtectedRoute>} />
+              <Route path="/own-fleet/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditOwnFleet /></ProtectedRoute>} />
+              <Route path="/own-fleet/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><OwnFleetDetail /></ProtectedRoute>} />
               
               <Route path="/payments" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.PaymentsPage /></ProtectedRoute>} />
               <Route path="/payments/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.PaymentFormPage /></ProtectedRoute>} />

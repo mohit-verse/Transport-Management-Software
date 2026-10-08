@@ -179,3 +179,66 @@ export const updatePartyBillingConfig = async (id: string, billing_configuration
   const response = await api.patch(`/api/parties/${id}/billing-config`, { billing_configuration });
   return response.data;
 };
+
+export interface OwnFleetVehicle {
+  id: string;
+  vehicle_number: string;
+  vehicle_type: string;
+  capacity_tonnage: number;
+  purchase_date: string;
+  status: 'AVAILABLE' | 'IN_TRIP' | 'MAINTENANCE' | 'SOLD';
+  created_at: string;
+  updated_at: string;
+}
+
+export const getOwnFleetVehicles = async (): Promise<{ success: boolean; data: OwnFleetVehicle[] }> => {
+  const response = await api.get('/api/own-fleet');
+  return response.data;
+};
+
+export const getOwnFleetVehicle = async (id: string): Promise<{ success: boolean; data: OwnFleetVehicle }> => {
+  const response = await api.get(`/api/own-fleet/${id}`);
+  return response.data;
+};
+
+export const createOwnFleetVehicle = async (data: Partial<OwnFleetVehicle>): Promise<{ success: boolean; data: OwnFleetVehicle }> => {
+  const response = await api.post('/api/own-fleet', data);
+  return response.data;
+};
+
+export const updateOwnFleetVehicle = async (id: string, data: Partial<OwnFleetVehicle>): Promise<{ success: boolean; data: OwnFleetVehicle }> => {
+  const response = await api.patch(`/api/own-fleet/${id}`, data);
+  return response.data;
+};
+
+export const setOwnFleetMaintenance = async (id: string): Promise<{ success: boolean; data: OwnFleetVehicle }> => {
+  const response = await api.post(`/api/own-fleet/${id}/maintenance`);
+  return response.data;
+};
+
+export const setOwnFleetSold = async (id: string): Promise<{ success: boolean; data: OwnFleetVehicle }> => {
+  const response = await api.post(`/api/own-fleet/${id}/sold`);
+  return response.data;
+};
+
+export const getOwnFleetTrips = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/own-fleet/${id}/trips`);
+  return response.data;
+};
+
+export const getOwnFleetExpenses = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/own-fleet/${id}/expenses`);
+  return response.data;
+};
+
+export const uploadOwnFleetDocument = async (id: string, formData: FormData): Promise<{ success: boolean; data: any }> => {
+  const response = await api.post(`/api/own-fleet/${id}/documents`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+export const getDocuments = async (params?: { entity_type?: string; entity_id?: string }): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get('/api/documents', { params });
+  return response.data;
+};

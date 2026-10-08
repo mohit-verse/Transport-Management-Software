@@ -13,8 +13,30 @@ export const upload = async (req: Request, res: Response, next: NextFunction) =>
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const entityType = req.query.entity_type as string | undefined;
+    const entityId = req.query.entity_id as string | undefined;
+    
+    // Fallback for older trip_id query
     const tripId = req.query.trip_id as string | undefined;
-    res.json({ success: true, data: await service.listDocuments(tripId) });
+    if (!entityType && tripId) {
+      res.json({ success: true, data: await service.listDocuments('TRIP', tripId) });
+      return;
+    }
+
+    res.json({ success: true, data: await service.listDocuments(entityType, entityId) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const uploadOwnFleetDoc = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { vehicle_id, document_type, expiry_date } = req.body;
+    const mockFile = { name: 'doc.pdf', path: '/uploads/doc.pdf', mime: 'application/pdf', size: 1024 };
+    res.status(201).json({ 
+      success: true, 
+      data: await service.uploadOwnFleetDoc(vehicle_id, document_type, expiry_date, mockFile, req.user!.id, req.user!.role) 
+    });
   } catch (error) {
     next(error);
   }

@@ -11,7 +11,7 @@ jest.mock('../src/db', () => ({
         if (q.includes('FROM bills')) return Promise.resolve({ rows: [{ id: 'b1', bill_number: 'BILL-SEARCH' }] });
       }
       if (values && values[0] === '%MH12SR%') {
-        if (q.includes('FROM own_fleet')) return Promise.resolve({ rows: [{ id: 'v1', vehicle_number: 'MH12SR1234', type: 'OWN' }] });
+        if (q.includes('FROM own_fleet_vehicles')) return Promise.resolve({ rows: [{ id: 'v1', vehicle_number: 'MH12SR1234', type: 'OWN' }] });
       }
       return Promise.resolve({ rows: [] });
     }),

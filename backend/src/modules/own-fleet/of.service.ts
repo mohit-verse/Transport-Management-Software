@@ -77,3 +77,36 @@ export const setSold = async (id: string, soldData: any, userId: string) => {
   await createAudit({ entityType: 'OWN_FLEET_VEHICLE', entityId: id, action: 'SOLD_REMOVED', newState: res.rows[0], userId });
   return res.rows[0];
 };
+
+export const getVehicleTrips = async (id: string) => {
+  const res = await query(`
+    SELECT * FROM trips WHERE own_fleet_vehicle_id = $1 ORDER BY created_at DESC
+  `, [id]);
+  return res.rows;
+};
+
+export const getVehicleExpenses = async (id: string) => {
+  const expensesQuery = `
+    SELECT e.*, t.trip_number
+    FROM own_fleet_expense_details e
+    JOIN trips t ON t.id = e.trip_id
+    WHERE t.own_fleet_vehicle_id = $1
+    ORDER BY e.created_at DESC
+  `;
+  const paymentsQuery = `
+    SELECT pa.*, p.payment_date, p.payment_mode, p.amount as total_payment_amount, t.trip_number
+    FROM payment_allocations pa
+    JOIN payments p ON p.id = pa.payment_id
+    JOIN trips t ON t.id = pa.trip_id
+    WHERE t.own_fleet_vehicle_id = $1 AND pa.category = 'OWN_FLEET_EXPENSE'
+    ORDER BY p.payment_date DESC
+  `;
+  
+  const expensesRes = await query(expensesQuery, [id]);
+  const paymentsRes = await query(paymentsQuery, [id]);
+  
+  return {
+    expenses: expensesRes.rows,
+    paymentAllocations: paymentsRes.rows
+  };
+};

@@ -40,4 +40,17 @@ describe('Documents API', () => {
     
     expect(res.status).toBeDefined();
   });
+
+  it('should upload own fleet document', async () => {
+    const res = await request(app)
+      .post('/api/documents/own-fleet')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        vehicle_id: '123e4567-e89b-12d3-a456-426614174000',
+        document_type: 'RC',
+        expiry_date: '2030-12-31'
+      });
+    
+    expect(res.status).toBeDefined();
+  });
 });

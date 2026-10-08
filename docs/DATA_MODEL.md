@@ -941,6 +941,7 @@ Document represents an uploaded business file.
 - Uploaded At
 - Related Entity
 - Related Entity ID
+- Expiry Date
 - Active/Inactive state where required
 - Metadata
 

@@ -31,3 +31,13 @@ export const sold = async (req: Request, res: Response, next: NextFunction) => {
   try { res.json({ success: true, data: await service.setSold((req.params.id as string), req.body, req.user!.id) }); } 
   catch (error) { next(error); }
 };
+
+export const trips = async (req: Request, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await service.getVehicleTrips(req.params.id as string) }); } 
+  catch (error) { next(error); }
+};
+
+export const expenses = async (req: Request, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await service.getVehicleExpenses(req.params.id as string) }); } 
+  catch (error) { next(error); }
+};

@@ -33,7 +33,7 @@ export const globalSearch = async (user: any, q: string) => {
   // Vehicles (Own and Market)
   const ownVehicles = await pool.query(`
     SELECT id, vehicle_number, 'OWN' as type 
-    FROM own_fleet 
+    FROM own_fleet_vehicles 
     WHERE vehicle_number ILIKE $1
     LIMIT 5
   `, [searchTerm]);

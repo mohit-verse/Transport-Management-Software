@@ -959,6 +959,14 @@ POST /api/documents
 
 Upload authorization must be checked against the related record.
 
+## 22.4.1 Upload Own Fleet Document
+
+```http
+POST /api/documents/own-fleet
+```
+Accepts `expiry_date` field.
+Upload authorization: OWNER can upload/replace/delete, STAFF upload only.
+
 ## 22.5 Replace
 
 Where permitted:

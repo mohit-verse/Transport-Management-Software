@@ -59,6 +59,41 @@ export const getVehicleOwners = async (): Promise<{ success: boolean; data: Vehi
   return response.data;
 };
 
+export const getVehicleOwner = async (id: string): Promise<{ success: boolean; data: VehicleOwner }> => {
+  const response = await api.get(`/api/vehicle-owners/${id}`);
+  return response.data;
+};
+
+export const createVehicleOwner = async (data: Partial<VehicleOwner>): Promise<{ success: boolean; data: VehicleOwner }> => {
+  const response = await api.post('/api/vehicle-owners', data);
+  return response.data;
+};
+
+export const updateVehicleOwner = async (id: string, data: Partial<VehicleOwner>): Promise<{ success: boolean; data: VehicleOwner }> => {
+  const response = await api.patch(`/api/vehicle-owners/${id}`, data);
+  return response.data;
+};
+
+export const getVehicleOwnerFinancials = async (id: string): Promise<{ success: boolean; data: any }> => {
+  const response = await api.get(`/api/vehicle-owners/${id}/financials`);
+  return response.data;
+};
+
+export const getVehicleOwnerVehicles = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/vehicle-owners/${id}/vehicles`);
+  return response.data;
+};
+
+export const getVehicleOwnerTrips = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/vehicle-owners/${id}/trips`);
+  return response.data;
+};
+
+export const getVehicleOwnerPayments = async (id: string): Promise<{ success: boolean; data: any[] }> => {
+  const response = await api.get(`/api/vehicle-owners/${id}/payments`);
+  return response.data;
+};
+
 export const getMarketVehicles = async (): Promise<{ success: boolean; data: MarketVehicle[] }> => {
   const response = await api.get('/api/market-vehicles');
   return response.data;

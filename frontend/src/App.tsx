@@ -19,6 +19,10 @@ import Parties from './pages/Parties';
 import CreateParty from './pages/CreateParty';
 import EditParty from './pages/EditParty';
 import PartyDetail from './pages/PartyDetail';
+import VehicleOwners from './pages/VehicleOwners';
+import CreateVehicleOwner from './pages/CreateVehicleOwner';
+import EditVehicleOwner from './pages/EditVehicleOwner';
+import VehicleOwnerDetail from './pages/VehicleOwnerDetail';
 
 const queryClient = new QueryClient();
 
@@ -54,8 +58,10 @@ function App() {
               <Route path="/parties/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditParty /></ProtectedRoute>} />
               <Route path="/parties/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><PartyDetail /></ProtectedRoute>} />
               
-              <Route path="/vehicle-owners" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnersPage /></ProtectedRoute>} />
-              <Route path="/vehicle-owners/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.VehicleOwnerDetailsPage /></ProtectedRoute>} />
+              <Route path="/vehicle-owners" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><VehicleOwners /></ProtectedRoute>} />
+              <Route path="/vehicle-owners/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateVehicleOwner /></ProtectedRoute>} />
+              <Route path="/vehicle-owners/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditVehicleOwner /></ProtectedRoute>} />
+              <Route path="/vehicle-owners/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><VehicleOwnerDetail /></ProtectedRoute>} />
               
               <Route path="/market-vehicles" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><MarketVehicles /></ProtectedRoute>} />
               <Route path="/market-vehicles/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateMarketVehicle /></ProtectedRoute>} />

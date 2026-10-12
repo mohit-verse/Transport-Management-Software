@@ -407,6 +407,7 @@ Returns authorized master and related information such as:
 - Payments
 - TDS
 - Documents
+- Available credits (`GET /api/parties/:id/credits/available`)
 
 ---
 
@@ -694,6 +695,54 @@ The API must:
 - Create audit history.
 
 The payment must remain stored.
+
+---
+
+## 18.7 Credit Utilization
+
+```http
+POST /api/payments/credits/utilize
+```
+
+Staff and Owner can record credit utilization against outstanding bills or trips from unexhausted `CREDIT_GENERATED` records.
+
+---
+
+## 18.8 FIFO Allocation
+
+Owner-only:
+
+```http
+POST /api/payments/fifo
+```
+
+Performs chronological automatic allocation across outstanding obligations for an incoming party payment.
+
+```http
+GET /api/payments/:id/fifo
+```
+
+Retrieves FIFO run details and sequence metadata.
+
+---
+
+## 18.9 Audit History
+
+```http
+GET /api/payments/:id/audit
+```
+
+Retrieves chronological audit events for the payment.
+
+---
+
+## 18.10 Other Business Categories
+
+```http
+GET /api/other-business-categories
+```
+
+Lists active master categories for other-business payments and receipts.
 
 ---
 

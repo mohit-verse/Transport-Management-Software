@@ -67,3 +67,10 @@ export const updateConfig = async (req: Request, res: Response, next: NextFuncti
     res.json({ success: true, data: party });
   } catch (error) { next(error); }
 };
+
+export const getAvailableCredits = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const credits = await service.getAvailableCredits(req.params.id as string);
+    res.json({ success: true, data: credits });
+  } catch (error) { next(error); }
+};

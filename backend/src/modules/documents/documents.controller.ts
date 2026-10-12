@@ -82,3 +82,16 @@ export const getFile = async (req: Request, res: Response, next: NextFunction) =
     next(error);
   }
 };
+
+export const uploadPaymentDoc = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { payment_id, document_type } = req.body;
+    const mockFile = { name: 'payment_receipt.pdf', path: '/uploads/payment_receipt.pdf', mime: 'application/pdf', size: 1024 };
+    res.status(201).json({
+      success: true,
+      data: await service.uploadPaymentDoc(payment_id, document_type, mockFile, req.user!.id)
+    });
+  } catch (error) {
+    next(error);
+  }
+};

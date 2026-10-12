@@ -11,6 +11,7 @@ documentsRouter.use(authenticate);
 
 documentsRouter.post('/pod', requireRole(['OWNER', 'STAFF']), validateRequest(schema.uploadPODSchema), controller.upload);
 documentsRouter.post('/own-fleet', requireRole(['OWNER', 'STAFF']), validateRequest(schema.uploadOwnFleetDocSchema), controller.uploadOwnFleetDoc);
+documentsRouter.post('/payment', requireRole(['OWNER', 'STAFF']), validateRequest(schema.uploadPaymentDocSchema), controller.uploadPaymentDoc);
 documentsRouter.get('/', requireRole(['OWNER', 'STAFF', 'CA']), controller.list);
 documentsRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.getMetadata);
 documentsRouter.get('/:id/file', requireRole(['OWNER', 'STAFF', 'CA']), controller.getFile);

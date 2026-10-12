@@ -88,3 +88,24 @@ export const uploadOwnFleetDoc = async (vehicleId: string, documentType: string,
   });
 };
 
+export const uploadPaymentDoc = async (paymentId: string, documentType: string, fileInfo: any, userId: string) => {
+  return withTransaction(async (client) => {
+    const pRes = await client.query('SELECT id FROM payments WHERE id = $1', [paymentId]);
+    if (pRes.rowCount === 0) {
+      throw new AppError('NOT_FOUND', 'Payment not found', 404);
+    }
+
+    const sql = `
+      INSERT INTO documents (document_type, original_name, storage_provider, storage_key, mime_type, file_size_bytes, uploaded_by)
+      VALUES ($1, $2, 'LOCAL', 'mock_doc.pdf', $3, $4, $5) RETURNING *
+    `;
+    const res = await client.query(sql, [documentType, fileInfo.name, fileInfo.mime, fileInfo.size, userId]);
+    const doc = res.rows[0];
+
+    await client.query(`INSERT INTO document_links (document_id, entity_type, entity_id) VALUES ($1, 'PAYMENT', $2)`, [doc.id, paymentId]);
+    await createAudit({ entityType: 'DOCUMENT', entityId: doc.id, action: 'UPLOAD_PAYMENT', newState: doc, userId }, client);
+    
+    return doc;
+  });
+};
+

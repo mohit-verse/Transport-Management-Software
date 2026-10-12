@@ -61,12 +61,11 @@ export const globalSearch = async (user: any, q: string) => {
     LIMIT 10
   `, [searchTerm]);
 
-  // Payments (search by ID or related entities? Let's search by ID or category for now, or maybe amount if it's numeric?)
-  // Using CAST to text to search payment_id or amount? Actually just checking category or mode for text.
+  // Payments
   const payments = await pool.query(`
-    SELECT id, payment_date, payment_type, amount, payment_mode 
+    SELECT id, payment_id, payment_date, payment_type, amount, payment_mode, category, payment_status 
     FROM payments 
-    WHERE category ILIKE $1 OR payment_mode ILIKE $1
+    WHERE payment_id ILIKE $1 OR category ILIKE $1 OR payment_mode ILIKE $1
     LIMIT 10
   `, [searchTerm]);
 

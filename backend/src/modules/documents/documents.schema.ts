@@ -15,3 +15,10 @@ export const uploadOwnFleetDocSchema = z.object({
     expiry_date: z.string().optional() // Expected format YYYY-MM-DD
   })
 });
+
+export const uploadPaymentDocSchema = z.object({
+  body: z.object({
+    payment_id: z.string().uuid(),
+    document_type: z.string().min(1).default('PAYMENT_RECEIPT')
+  })
+});

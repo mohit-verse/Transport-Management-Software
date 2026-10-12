@@ -283,3 +283,45 @@ export const updateBillingConfig = async (id: string, config: any, userId: strin
 
   return updated;
 };
+
+export const getAvailableCredits = async (partyId: string) => {
+  await getPartyById(partyId);
+
+  const sql = `
+    SELECT 
+      pa.id AS credit_allocation_id,
+      pa.payment_id,
+      p.payment_id AS payment_id_code,
+      p.payment_date,
+      p.party_id,
+      pa.allocation_amount AS generated_amount,
+      COALESCE(
+        (SELECT SUM(u.allocation_amount) 
+         FROM payment_allocations u 
+         WHERE u.party_credit_source_id = pa.id 
+           AND u.allocation_type = 'CREDIT_UTILIZED' 
+           AND u.allocation_status = 'ACTIVE'), 
+        0
+      ) AS utilized_amount,
+      (
+        pa.allocation_amount - COALESCE(
+          (SELECT SUM(u.allocation_amount) 
+           FROM payment_allocations u 
+           WHERE u.party_credit_source_id = pa.id 
+             AND u.allocation_type = 'CREDIT_UTILIZED' 
+             AND u.allocation_status = 'ACTIVE'), 
+          0
+        )
+      ) AS remaining_amount,
+      pa.created_at
+    FROM payment_allocations pa
+    JOIN payments p ON p.id = pa.payment_id
+    WHERE pa.allocation_type = 'CREDIT_GENERATED'
+      AND pa.allocation_status = 'ACTIVE'
+      AND p.payment_status = 'ACTIVE'
+      AND p.party_id = $1
+    ORDER BY p.payment_date ASC, pa.created_at ASC
+  `;
+  const res = await query(sql, [partyId]);
+  return res.rows.filter((r: any) => parseFloat(r.remaining_amount) > 0);
+};

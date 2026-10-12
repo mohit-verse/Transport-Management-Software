@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth';
 import { requireRole } from '../../middlewares/rbac';
@@ -9,15 +8,24 @@ import * as schema from './payments.schema';
 export const paymentsRouter = Router();
 paymentsRouter.use(authenticate);
 
-// STAFF and OWNER can create and edit
+// Read endpoints (OWNER, STAFF, CA)
+paymentsRouter.get('/', requireRole(['OWNER', 'STAFF', 'CA']), validateRequest(schema.listPaymentsQuerySchema), controller.list);
+paymentsRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.get);
+paymentsRouter.get('/:id/fifo', requireRole(['OWNER', 'STAFF', 'CA']), controller.getFifoRuns);
+paymentsRouter.get('/:id/audit', requireRole(['OWNER', 'STAFF', 'CA']), controller.getAudit);
+
+// Creation and basic edits (STAFF and OWNER)
 paymentsRouter.post('/', requireRole(['OWNER', 'STAFF']), validateRequest(schema.createPaymentSchema), controller.create);
 paymentsRouter.patch('/:id', requireRole(['OWNER', 'STAFF']), validateRequest(schema.updatePaymentSchema), controller.update);
 
-// ONLY OWNER can reverse
+// Reallocation (OWNER only)
+paymentsRouter.post('/:id/reallocate', requireRole(['OWNER']), validateRequest(schema.reallocatePaymentSchema), controller.reallocate);
+
+// Reversal (OWNER only)
 paymentsRouter.post('/:id/reverse', requireRole(['OWNER']), validateRequest(schema.reversePaymentSchema), controller.reverse);
 
-// OWNER and STAFF can utilize credit
+// Credit utilization (OWNER and STAFF)
 paymentsRouter.post('/credits/utilize', requireRole(['OWNER', 'STAFF']), validateRequest(schema.utilizeCreditSchema), controller.utilizeCredit);
 
-// ONLY OWNER can do FIFO bulk
+// FIFO bulk allocation (OWNER only)
 paymentsRouter.post('/fifo', requireRole(['OWNER']), validateRequest(schema.fifoAllocationSchema), controller.fifo);

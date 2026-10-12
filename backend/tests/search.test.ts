@@ -13,6 +13,9 @@ jest.mock('../src/db', () => ({
       if (values && values[0] === '%MH12SR%') {
         if (q.includes('FROM own_fleet_vehicles')) return Promise.resolve({ rows: [{ id: 'v1', vehicle_number: 'MH12SR1234', type: 'OWN' }] });
       }
+      if (values && values[0] === '%PAY-2026%') {
+        if (q.includes('FROM payments')) return Promise.resolve({ rows: [{ id: 'pay-1', payment_id: 'PAY-20261013-1234', amount: '5000', payment_type: 'INCOMING' }] });
+      }
       return Promise.resolve({ rows: [] });
     }),
     end: jest.fn()
@@ -52,5 +55,13 @@ describe('Phase 3F - Global Search', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.vehicles.length).toBe(1);
     expect(res.body.data.vehicles[0].vehicle_number).toBe('MH12SR1234');
+  });
+
+  it('GET /api/search?q=PAY-2026 should return matching payments by Payment ID', async () => {
+    const res = await request(app).get('/api/search?q=PAY-2026');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.payments.length).toBe(1);
+    expect(res.body.data.payments[0].payment_id).toBe('PAY-20261013-1234');
   });
 });

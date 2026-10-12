@@ -21,6 +21,10 @@ export class LocalStorageService implements StorageService {
 
   async upload(key: string, fileStream: NodeJS.ReadableStream): Promise<void> {
     const filePath = path.join(this.baseDir, key);
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     const writeStream = fs.createWriteStream(filePath);
     return new Promise((resolve, reject) => {
       fileStream.pipe(writeStream);

@@ -17,6 +17,7 @@ partiesRouter.get('/:id/trips', requireRole(['OWNER', 'STAFF', 'CA']), controlle
 partiesRouter.get('/:id/bills', requireRole(['OWNER', 'STAFF', 'CA']), controller.getBills);
 partiesRouter.get('/:id/payments', requireRole(['OWNER', 'STAFF', 'CA']), controller.getPayments);
 partiesRouter.get('/:id/credits/available', requireRole(['OWNER', 'STAFF', 'CA']), controller.getAvailableCredits);
+partiesRouter.get('/:id/numbering-series', requireRole(['OWNER', 'STAFF', 'CA']), controller.getNumberingSeries);
 
 partiesRouter.post('/', requireRole(['OWNER', 'STAFF']), validateRequest(schema.createPartySchema), controller.create);
 partiesRouter.patch('/:id', requireRole(['OWNER', 'STAFF']), validateRequest(schema.updatePartySchema), controller.update);

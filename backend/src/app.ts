@@ -40,6 +40,7 @@ import { reportsRouter } from './modules/reports/reports.routes';
 import dashboardRouter from './modules/dashboard/dashboard.routes';
 import searchRouter from './modules/search/search.routes';
 import { otherBusinessRouter } from './modules/other-business/other-business.routes';
+import { financialYearsRouter } from './modules/financial-years/financial-years.routes';
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -52,6 +53,7 @@ app.use('/api/trips', tripsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/bills', billsRouter);
+app.use('/api/financial-years', financialYearsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/search', searchRouter);

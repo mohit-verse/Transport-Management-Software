@@ -74,3 +74,13 @@ export const getAvailableCredits = async (req: Request, res: Response, next: Nex
     res.json({ success: true, data: credits });
   } catch (error) { next(error); }
 };
+
+import * as billService from '../bills/bills.service';
+
+export const getNumberingSeries = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const fyId = req.query.financial_year_id as string | undefined;
+    res.json({ success: true, data: await billService.getNumberingSeries(req.params.id as string, fyId) });
+  } catch (error) { next(error); }
+};
+

@@ -919,25 +919,94 @@ POST /api/bill-templates
 PATCH /api/bill-templates/:id
 ```
 
-## 20.5 Import Existing Bill Design
+## 20.5 Template Preview (Non-Mutating)
 
-The Bill Designer supports automatic reconstruction from an uploaded PDF/JPG/PNG.
+Generate real-time PDF or JSON preview for draft or existing templates without modifying any database records.
 
-Conceptually:
+```http
+POST /api/bill-templates/preview
+```
+
+**Roles:** `OWNER`, `STAFF`
+
+**Request Body:**
+```json
+{
+  "template_id": "uuid (optional)",
+  "template_type": "INDIVIDUAL | CONSOLIDATED | MULTI_PAGE",
+  "layout_json": { ... },
+  "components": [ ... ],
+  "dynamic_fields": [ ... ],
+  "sample_data": { ... },
+  "format": "pdf | json"
+}
+```
+
+**Response (format: 'pdf'):**
+- Header: `Content-Type: application/pdf`
+- Header: `Content-Disposition: inline; filename="preview_consolidated.pdf"`
+- Body: Pure PDF-1.4 binary stream
+
+**Response (format: 'json'):**
+```json
+{
+  "success": true,
+  "data": {
+    "format": "json",
+    "template_type": "CONSOLIDATED",
+    "layout_json": { ... },
+    "components": [ ... ],
+    "dynamic_fields": [ ... ],
+    "resolved_dynamic_fields": {
+      "party.name": "Sample Logistics & Infra Private Limited",
+      "billing.bill_number": "SRL/26-27/042",
+      "billing.total_amount": "INR 92,000.00"
+    }
+  }
+}
+```
+
+## 20.6 Import Reference Bill Design & Reconstruction
+
+Reconstruct structured editable template components from uploaded PDF/JPG/PNG files.
 
 ```http
 POST /api/bill-templates/import
 ```
 
-The system should:
+**Roles:** `OWNER`
 
-1. Receive the reference file.
-2. Reconstruct editable structured elements.
-3. Return a reviewable template.
-4. Allow the user to correct it.
-5. Save the structured template.
+**Request Body:**
+```json
+{
+  "file_name": "sample_invoice.pdf",
+  "file_content_base64": "<base64>",
+  "mime_type": "application/pdf | image/jpeg | image/png"
+}
+```
 
-The uploaded blank bill must not simply become a permanent static background because consolidated rows may need to cross page/border boundaries.
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "layout_json": {
+      "page_size": "A4",
+      "orientation": "PORTRAIT",
+      "margins": { "top": 20, "right": 20, "bottom": 20, "left": 20 },
+      "primary_font": "Helvetica",
+      "imported_file_name": "sample_invoice.pdf",
+      "imported_at": "2026-10-15T..."
+    },
+    "components": [ ... ],
+    "dynamic_fields": [ ... ],
+    "warnings": [ ... ],
+    "confidence": "HIGH | MEDIUM | LOW"
+  }
+}
+```
+*Note: In standard Node.js without external heavy OCR libraries, vector PDFs extract stream text tokens into components (confidence: HIGH), while raster images and scanned files reconstruct standard transport bill layout heuristics with warnings requesting user review in the editor (confidence: MEDIUM).*
+
 
 ---
 

@@ -63,7 +63,7 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
 
 export const updateConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const party = await service.updateBillingConfig((req.params.id as string), req.body.billing_configuration, req.user!.id);
+    const party = await service.updateBillingConfig((req.params.id as string), req.body, req.user!.id);
     res.json({ success: true, data: party });
   } catch (error) { next(error); }
 };

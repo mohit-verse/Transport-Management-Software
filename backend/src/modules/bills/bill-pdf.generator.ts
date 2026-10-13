@@ -1,3 +1,5 @@
+import { resolveTextTemplate, formatCurrency, formatDate, DynamicFieldContext } from '../bill-templates/dynamic-fields.resolver';
+
 export interface BillPdfData {
   id: string;
   bill_number: string;
@@ -21,11 +23,29 @@ export interface BillPdfData {
     city?: string;
     state?: string;
     pin_code?: string;
+    billing_address?: string;
   };
   party_name?: string;
   template_snapshot?: {
     template?: { name?: string; template_type?: string };
     layout?: Record<string, any>;
+    components?: Array<{
+      component_type: string;
+      component_key: string;
+      position_x?: number | null;
+      position_y?: number | null;
+      width?: number | null;
+      height?: number | null;
+      style_json?: Record<string, any>;
+      content_json?: Record<string, any>;
+    }>;
+    assets?: Array<{
+      asset_type: string;
+      file_name: string;
+      storage_key: string;
+      mime_type?: string;
+    }>;
+    dynamic_field_definitions?: Array<any>;
   };
   items: Array<{
     sequence_no: number;
@@ -35,27 +55,295 @@ export interface BillPdfData {
     quantity?: number | string | null;
     unit_price?: number | string | null;
     line_amount: number | string;
+    trip_id?: string;
   }>;
 }
 
 export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
-  const sanitize = (text: any) => {
+  const sanitize = (text: any): string => {
     if (text === null || text === undefined) return '';
     return String(text).replace(/[\\()]/g, '').replace(/[^\x20-\x7E]/g, ' ');
   };
 
-  const formatCurrency = (amount: any) => {
-    const num = Number(amount || 0);
-    return 'INR ' + num.toFixed(2);
+  // Build resolution context
+  const resolutionContext: DynamicFieldContext = {
+    party: bill.party || { name: bill.party_name },
+    bill: {
+      bill_number: bill.bill_number,
+      bill_date: bill.bill_date,
+      billing_mode: bill.billing_mode,
+      bill_status: bill.bill_status,
+      financial_year_code: bill.financial_year?.code || bill.financial_year_code,
+      total_amount: bill.total_amount,
+      paid_amount: bill.paid_amount || 0,
+      balance_amount: bill.balance_amount || bill.total_amount
+    },
+    billing: {
+      bill_number: bill.bill_number,
+      bill_date: bill.bill_date,
+      billing_mode: bill.billing_mode,
+      bill_status: bill.bill_status,
+      financial_year_code: bill.financial_year?.code || bill.financial_year_code,
+      total_amount: bill.total_amount,
+      paid_amount: bill.paid_amount || 0,
+      balance_amount: bill.balance_amount || bill.total_amount
+    },
+    payment: {
+      total_paid: bill.paid_amount || 0,
+      outstanding_balance: bill.balance_amount || bill.total_amount,
+      payment_status: Number(bill.balance_amount || 0) === 0 ? 'PAID' : 'PENDING'
+    },
+    calculated: {
+      total_freight: bill.total_amount,
+      balance_payable: bill.balance_amount || bill.total_amount
+    },
+    items: bill.items || []
   };
 
-  const allItems = Array.isArray(bill.items) ? bill.items : [];
+  const components = bill.template_snapshot?.components;
+  const layout = bill.template_snapshot?.layout || {};
 
-  // Determine pagination
-  // Page 1 header takes ~240pt. Usable Y: 530 down to 140 (if 1 page) or 60 (if multi-page).
-  // Each item takes 16pt.
-  // Single-page limit: ~22 items.
-  // Multi-page: Page 1 gets 20 items. Continuation pages get up to 32 items.
+  // If structured components exist, use template-driven renderer
+  if (Array.isArray(components) && components.length > 0) {
+    return renderStructuredTemplate(bill, components, layout, resolutionContext, sanitize);
+  }
+
+  // Fallback canonical layout
+  return renderCanonicalLayout(bill, resolutionContext, sanitize);
+}
+
+/**
+ * Structured Template Renderer
+ */
+function renderStructuredTemplate(
+  bill: BillPdfData,
+  components: Array<any>,
+  layout: Record<string, any>,
+  context: DynamicFieldContext,
+  sanitize: (t: any) => string
+): Buffer {
+  const pageWidth = layout.page_width || 595.28; // Default A4
+  const pageHeight = layout.page_height || 841.89;
+  const marginLeft = layout.margin_left || 40;
+  const marginRight = layout.margin_right || 40;
+  const marginTop = layout.margin_top || 40;
+  const marginBottom = layout.margin_bottom || 40;
+  const printableWidth = pageWidth - marginLeft - marginRight;
+
+  const toPdfY = (y: number | null | undefined, defaultY: number): number => {
+    if (y === null || y === undefined) return defaultY;
+    // If coordinate was specified top-down (y <= pageHeight / 2), convert to bottom-up
+    if (y <= pageHeight / 2) {
+      return pageHeight - marginTop - y;
+    }
+    return y;
+  };
+
+  // Group components by type
+  const headerComponents = components.filter((c) => c.component_type === 'HEADER');
+  const footerComponents = components.filter((c) => c.component_type === 'FOOTER');
+  const tableComponents = components.filter((c) => c.component_type === 'TABLE');
+  const otherComponents = components.filter((c) => !['HEADER', 'FOOTER', 'TABLE'].includes(c.component_type));
+
+  const items = Array.isArray(bill.items) ? bill.items : [];
+
+  // Determine row pagination: up to 24 rows per page
+  const itemsPerPage = 22;
+  const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
+  const pageStreams: string[] = [];
+
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const pageNum = pageIdx + 1;
+    const isFirstPage = pageNum === 1;
+    const isLastPage = pageNum === totalPages;
+    const itemsOnPage = items.slice(pageIdx * itemsPerPage, (pageIdx + 1) * itemsPerPage);
+
+    const lines: string[] = [];
+
+    // 1. Render Headers
+    if (isFirstPage && headerComponents.length > 0) {
+      for (const h of headerComponents) {
+        const title = resolveTextTemplate(h.content_json?.title || h.content_json?.text || 'SHRI SANWARIYA ROAD LINES', context);
+        const subtitle = resolveTextTemplate(h.content_json?.subtitle || '', context);
+        const y = toPdfY(h.position_y, pageHeight - marginTop - 20);
+
+        lines.push('BT');
+        lines.push('/F2 16 Tf');
+        lines.push(`${marginLeft} ${y} Td`);
+        lines.push(`(${sanitize(title)}) Tj`);
+        if (subtitle) {
+          lines.push('/F1 9 Tf');
+          lines.push('0 -16 Td');
+          lines.push(`(${sanitize(subtitle)}) Tj`);
+        }
+        lines.push('ET');
+
+        // Divider
+        lines.push(`${marginLeft} ${y - 25} m ${pageWidth - marginRight} ${y - 25} l S`);
+      }
+    } else if (!isFirstPage) {
+      // Continuation header
+      lines.push('BT');
+      lines.push('/F2 10 Tf');
+      lines.push(`${marginLeft} ${pageHeight - marginTop - 15} Td`);
+      lines.push(`(${sanitize('SHRI SANWARIYA ROAD LINES')} - Bill No: ${sanitize(bill.bill_number)} (Continuation) [Page ${pageNum} of ${totalPages}]) Tj`);
+      lines.push('ET');
+      lines.push(`${marginLeft} ${pageHeight - marginTop - 25} m ${pageWidth - marginRight} ${pageHeight - marginTop - 25} l S`);
+    }
+
+    // 2. Render Other Components on first page (Text, Lines, Images)
+    if (isFirstPage) {
+      for (const comp of otherComponents) {
+        const posX = comp.position_x !== null && comp.position_x !== undefined ? comp.position_x : marginLeft;
+        const posY = toPdfY(comp.position_y, 650);
+
+        if (comp.component_type === 'TEXT') {
+          const fontSize = comp.style_json?.font_size || 9;
+          const isBold = comp.style_json?.bold || false;
+          let text = '';
+          const rawTemplate = comp.content_json?.template_text || comp.content_json?.text || '';
+          if (rawTemplate) {
+            text = resolveTextTemplate(rawTemplate, context);
+          } else if (comp.content_json?.label && comp.content_json?.binding) {
+            const val = resolveTextTemplate(comp.content_json.binding, context);
+            text = `${comp.content_json.label}: ${val}`;
+          } else if (comp.content_json?.label) {
+            text = comp.content_json.label;
+          }
+
+          if (text) {
+            const textLines = text.split('\n');
+            lines.push('BT');
+            lines.push(`/${isBold ? 'F2' : 'F1'} ${fontSize} Tf`);
+            lines.push(`${posX} ${posY} Td`);
+            lines.push(`(${sanitize(textLines[0])}) Tj`);
+            for (let li = 1; li < textLines.length; li++) {
+              lines.push(`0 -${fontSize + 4} Td`);
+              lines.push(`(${sanitize(textLines[li])}) Tj`);
+            }
+            lines.push('ET');
+          }
+        } else if (comp.component_type === 'LINE' || comp.component_type === 'BORDER') {
+          const lineWidth = comp.width || printableWidth;
+          lines.push(`${posX} ${posY} m ${posX + lineWidth} ${posY} l S`);
+        } else if (['IMAGE', 'LOGO', 'SIGNATURE', 'STAMP'].includes(comp.component_type)) {
+          const w = comp.width || 120;
+          const h = comp.height || 40;
+          const label = comp.content_json?.label || comp.component_key || comp.component_type;
+          // Render framed placeholder box
+          lines.push(`${posX} ${posY - h} ${w} ${h} re S`);
+          lines.push('BT');
+          lines.push('/F1 8 Tf');
+          lines.push(`${posX + 6} ${posY - h + (h / 2) - 4} Td`);
+          lines.push(`([${sanitize(label)}]) Tj`);
+          lines.push('ET');
+        }
+      }
+    }
+
+    // 3. Render Table
+    let tableStartY = isFirstPage ? 520 : pageHeight - marginTop - 45;
+    if (tableComponents.length > 0 && tableComponents[0].position_y !== null && tableComponents[0].position_y !== undefined) {
+      if (isFirstPage) {
+        tableStartY = toPdfY(tableComponents[0].position_y, 520);
+      }
+    }
+
+    // Table Header
+    lines.push('BT');
+    lines.push('/F2 9 Tf');
+    lines.push(`${marginLeft} ${tableStartY} Td`);
+    lines.push(`(#) Tj`);
+    lines.push('25 0 Td');
+    lines.push(`(Description) Tj`);
+    lines.push('190 0 Td');
+    lines.push(`(Trip No) Tj`);
+    lines.push('80 0 Td');
+    lines.push(`(Vehicle) Tj`);
+    lines.push('85 0 Td');
+    lines.push(`(Amount) Tj`);
+    lines.push('ET');
+
+    lines.push(`${marginLeft} ${tableStartY - 6} m ${pageWidth - marginRight} ${tableStartY - 6} l S`);
+
+    let currentY = tableStartY - 20;
+    for (const item of itemsOnPage) {
+      lines.push('BT');
+      lines.push('/F1 9 Tf');
+      lines.push(`${marginLeft} ${currentY} Td`);
+      lines.push(`(${String(item.sequence_no || 1)}) Tj`);
+      lines.push('25 0 Td');
+      lines.push(`(${sanitize((item.description || 'Freight Charges').slice(0, 36))}) Tj`);
+      lines.push('190 0 Td');
+      lines.push(`(${sanitize(item.trip_number || '-')}) Tj`);
+      lines.push('80 0 Td');
+      lines.push(`(${sanitize(item.vehicle_number || '-')}) Tj`);
+      lines.push('85 0 Td');
+      lines.push(`(${sanitize(formatCurrency(item.line_amount))}) Tj`);
+      lines.push('ET');
+      currentY -= 15;
+    }
+
+    // 4. Render Totals on last page
+    if (isLastPage) {
+      const totalsY = Math.max(currentY - 10, marginBottom + 60);
+      lines.push(`${marginLeft} ${totalsY} m ${pageWidth - marginRight} ${totalsY} l S`);
+
+      lines.push('BT');
+      lines.push(`${pageWidth - marginRight - 190} ${totalsY - 16} Td`);
+      lines.push('/F2 10 Tf');
+      lines.push(`(Total Amount:   ${sanitize(formatCurrency(bill.total_amount))}) Tj`);
+      lines.push('0 -14 Td');
+      lines.push('/F1 9 Tf');
+      lines.push(`(Paid Amount:    ${sanitize(formatCurrency(bill.paid_amount || 0))}) Tj`);
+      lines.push('0 -14 Td');
+      lines.push('/F2 9 Tf');
+      lines.push(`(Balance Amount: ${sanitize(formatCurrency(bill.balance_amount || 0))}) Tj`);
+      lines.push('ET');
+
+      // Custom footer components if any
+      if (footerComponents.length > 0) {
+        for (const foot of footerComponents) {
+          const footText = resolveTextTemplate(foot.content_json?.footer_text || foot.content_json?.text || '', context);
+          if (footText) {
+            lines.push('BT');
+            lines.push('/F1 8 Tf');
+            lines.push(`${marginLeft} ${marginBottom + 30} Td`);
+            lines.push(`(${sanitize(footText)}) Tj`);
+            lines.push('ET');
+          }
+        }
+      } else {
+        lines.push('BT');
+        lines.push('/F1 8 Tf');
+        lines.push(`${marginLeft} ${marginBottom + 30} Td`);
+        lines.push(`(${sanitize('This is a computer-generated billing document issued by Shri Sanwariya Road Lines.')}) Tj`);
+        lines.push('ET');
+      }
+    }
+
+    // 5. Page number footer on every page
+    lines.push('BT');
+    lines.push('/F1 8 Tf');
+    lines.push(`${pageWidth / 2 - 25} ${marginBottom + 10} Td`);
+    lines.push(`(Page ${pageNum} of ${totalPages}) Tj`);
+    lines.push('ET');
+
+    pageStreams.push(lines.join('\n'));
+  }
+
+  return assemblePdf(pageStreams, pageWidth, pageHeight);
+}
+
+/**
+ * Fallback Canonical SSRL Layout
+ */
+function renderCanonicalLayout(
+  bill: BillPdfData,
+  context: DynamicFieldContext,
+  sanitize: (t: any) => string
+): Buffer {
+  const allItems = Array.isArray(bill.items) ? bill.items : [];
   const pagesItems: Array<typeof allItems> = [];
   if (allItems.length <= 20) {
     pagesItems.push(allItems);
@@ -63,16 +351,13 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
     pagesItems.push(allItems.slice(0, 20));
     let remaining = allItems.slice(20);
     while (remaining.length > 0) {
-      // If remaining items + totals block fit in 30 items
       const chunkSize = 30;
       pagesItems.push(remaining.slice(0, chunkSize));
       remaining = remaining.slice(chunkSize);
     }
   }
 
-  // If last page has more than 24 items, totals block might need its own page or extra space
   const totalPages = pagesItems.length;
-
   const pageStreams: string[] = [];
 
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
@@ -84,7 +369,6 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
     const lines: string[] = [];
 
     if (isFirstPage) {
-      // Full SRL Header
       lines.push('BT');
       lines.push('/F2 16 Tf');
       lines.push('50 750 Td');
@@ -94,16 +378,14 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
       lines.push(`(${sanitize('Fleet Owners & Transport Contractors')}) Tj`);
       lines.push('ET');
 
-      // Top divider
       lines.push('50 720 m 562 720 l S');
 
-      // Bill metadata box
       lines.push('BT');
       lines.push('/F2 10 Tf');
       lines.push('50 705 Td');
       lines.push(`(BILL NO: ${sanitize(bill.bill_number)}) Tj`);
       lines.push('220 0 Td');
-      lines.push(`(DATE: ${sanitize(bill.bill_date)}) Tj`);
+      lines.push(`(DATE: ${sanitize(formatDate(bill.bill_date))}) Tj`);
       lines.push('160 0 Td');
       const statusLabel = bill.version_status ? `${bill.bill_status} (${bill.version_status})` : bill.bill_status;
       lines.push(`(STATUS: ${sanitize(statusLabel)}) Tj`);
@@ -118,7 +400,7 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
       const vLabel = bill.version_label || (bill.version_number ? `Version ${bill.version_number}` : 'Version 1');
       lines.push(`(Document: ${sanitize(vLabel)}) Tj`);
 
-      // Party / Customer Section
+      // Billed To Party
       lines.push('-380 -26 Td');
       lines.push('/F2 10 Tf');
       lines.push(`(BILLED TO:) Tj`);
@@ -145,7 +427,6 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
       }
       lines.push('ET');
 
-      // Divider before table
       lines.push('50 560 m 562 560 l S');
 
       // Table Header
@@ -178,17 +459,16 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
         lines.push('75 0 Td');
         lines.push(`(${sanitize(item.vehicle_number || '-')}) Tj`);
         lines.push('80 0 Td');
-        lines.push(`(${formatCurrency(item.line_amount)}) Tj`);
+        lines.push(`(${sanitize(formatCurrency(item.line_amount))}) Tj`);
         lines.push('ET');
         currentY -= 15;
       }
 
-      // If last page, render totals
       if (isLastPage) {
-        renderTotals(lines, currentY, bill, formatCurrency, sanitize);
+        renderCanonicalTotals(lines, currentY, bill, sanitize);
       }
     } else {
-      // Continuation Page Header
+      // Continuation Header
       lines.push('BT');
       lines.push('/F2 11 Tf');
       lines.push('50 750 Td');
@@ -197,7 +477,6 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
 
       lines.push('50 740 m 562 740 l S');
 
-      // Table Header
       lines.push('BT');
       lines.push('/F2 9 Tf');
       lines.push('50 725 Td');
@@ -227,17 +506,16 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
         lines.push('75 0 Td');
         lines.push(`(${sanitize(item.vehicle_number || '-')}) Tj`);
         lines.push('80 0 Td');
-        lines.push(`(${formatCurrency(item.line_amount)}) Tj`);
+        lines.push(`(${sanitize(formatCurrency(item.line_amount))}) Tj`);
         lines.push('ET');
         currentY -= 15;
       }
 
       if (isLastPage) {
-        renderTotals(lines, currentY, bill, formatCurrency, sanitize);
+        renderCanonicalTotals(lines, currentY, bill, sanitize);
       }
     }
 
-    // Page Footer on every page
     lines.push('BT');
     lines.push('/F1 8 Tf');
     lines.push(`270 30 Td`);
@@ -247,50 +525,41 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
     pageStreams.push(lines.join('\n'));
   }
 
-  return assemblePdf(pageStreams);
+  return assemblePdf(pageStreams, 612, 792);
 }
 
-function renderTotals(
+function renderCanonicalTotals(
   lines: string[],
   currentY: number,
   bill: BillPdfData,
-  formatCurrency: (amount: any) => string,
-  sanitize: (text: any) => string
-) {
+  sanitize: (t: any) => string
+): void {
   const lineY = Math.max(currentY, 130);
   lines.push(`50 ${lineY} m 562 ${lineY} l S`);
 
   lines.push('BT');
   lines.push(`360 ${lineY - 18} Td`);
   lines.push('/F2 10 Tf');
-  lines.push(`(Total Amount:   ${formatCurrency(bill.total_amount)}) Tj`);
+  lines.push(`(Total Amount:   ${sanitize(formatCurrency(bill.total_amount))}) Tj`);
   lines.push('0 -15 Td');
   lines.push('/F1 9 Tf');
-  lines.push(`(Paid Amount:    ${formatCurrency(bill.paid_amount || 0)}) Tj`);
+  lines.push(`(Paid Amount:    ${sanitize(formatCurrency(bill.paid_amount || 0))}) Tj`);
   lines.push('0 -15 Td');
   lines.push('/F2 9 Tf');
-  lines.push(`(Balance Amount: ${formatCurrency(bill.balance_amount || 0)}) Tj`);
+  lines.push(`(Balance Amount: ${sanitize(formatCurrency(bill.balance_amount || 0))}) Tj`);
 
-  // Footer Disclaimer
   lines.push('-310 -25 Td');
   lines.push('/F1 8 Tf');
   lines.push(`(${sanitize('This is a computer-generated billing document issued by Shri Sanwariya Road Lines.')}) Tj`);
   lines.push('ET');
 }
 
-function assemblePdf(pageStreams: string[]): Buffer {
+/**
+ * Assembles pure PDF-1.4 file
+ */
+function assemblePdf(pageStreams: string[], pageWidth: number = 612, pageHeight: number = 792): Buffer {
   const pageCount = pageStreams.length;
   const header = '%PDF-1.4\n';
-
-  // Object indices:
-  // 1: Catalog
-  // 2: Pages
-  // Page 1: 3, Contents 1: 4
-  // Page 2: 5, Contents 2: 6
-  // ...
-  // Page N: 2N+1, Contents N: 2N+2
-  // Font F1: 2N+3
-  // Font F2: 2N+4
 
   const font1Id = 2 * pageCount + 3;
   const font2Id = 2 * pageCount + 4;
@@ -311,7 +580,7 @@ function assemblePdf(pageStreams: string[]): Buffer {
     const streamContent = pageStreams[i - 1];
     const streamLength = Buffer.byteLength(streamContent, 'utf-8');
 
-    const pageObj = `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentsObjId} 0 R /Resources << /Font << /F1 ${font1Id} 0 R /F2 ${font2Id} 0 R >> >> >>\nendobj\n`;
+    const pageObj = `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] /Contents ${contentsObjId} 0 R /Resources << /Font << /F1 ${font1Id} 0 R /F2 ${font2Id} 0 R >> >> >>\nendobj\n`;
     const contentsObj = `${contentsObjId} 0 obj\n<< /Length ${streamLength} >>\nstream\n${streamContent}\nendstream\nendobj\n`;
 
     pageObjects.push(pageObj);
@@ -321,7 +590,6 @@ function assemblePdf(pageStreams: string[]): Buffer {
   const font1Obj = `${font1Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
   const font2Obj = `${font2Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`;
 
-  // Measure byte offsets
   const objectsMap: Array<{ id: number; content: string }> = [
     { id: 1, content: obj1 },
     { id: 2, content: obj2 }

@@ -32,6 +32,12 @@ export const updatePartySchema = z.object({
 
 export const updateBillingConfigSchema = z.object({
   body: z.object({
-    billing_configuration: z.record(z.any())
+    billing_configuration: z.record(z.any()).optional(),
+    billing_mode: z.enum(['INDIVIDUAL', 'CONSOLIDATED']).optional(),
+    default_template_id: z.string().uuid().nullable().optional(),
+    tds_treatment: z.string().nullable().optional(),
+    required_fields: z.record(z.any()).optional(),
+    numbering_series_policy: z.record(z.any()).optional()
   })
 });
+

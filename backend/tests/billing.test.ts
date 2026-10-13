@@ -497,7 +497,7 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
 
       const bodyStr = res.body.toString('latin1');
       expect(bodyStr.startsWith('%PDF-1.4')).toBe(true);
-      expect(bodyStr).toContain('Total Amount:   INR 35000.00');
+      expect(bodyStr).toMatch(/Total Amount:\s+INR (35,000\.00|35000\.00)/);
     });
 
     it('streams current active Version 2 PDF matching corrected totals', async () => {
@@ -508,7 +508,7 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
 
       const bodyStr = res.body.toString('latin1');
       expect(bodyStr.startsWith('%PDF-1.4')).toBe(true);
-      expect(bodyStr).toContain('Total Amount:   INR 42000.00');
+      expect(bodyStr).toMatch(/Total Amount:\s+INR (42,000\.00|42000\.00)/);
     });
 
     it('generates and streams a multi-page PDF document with continuation headers and page numbers', async () => {
@@ -541,7 +541,7 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
       expect(pdfStr).toContain('Page 1 of 2');
       expect(pdfStr).toContain('Page 2 of 2');
       expect(pdfStr).toContain('[Page 2 of 2]'); // Continuation header on page 2
-      expect(pdfStr).toContain('Total Amount:   INR 25000.00');
+      expect(pdfStr).toMatch(/Total Amount:\s+INR (25,000\.00|25000\.00)/);
     });
   });
 

@@ -1,5 +1,6 @@
 
 import { query } from '../../db';
+import { withTransaction } from '../../db/transaction';
 import { AppError } from '../../errors/AppError';
 import { createAudit } from '../../utils/audit';
 import { PoolClient } from 'pg';
@@ -95,11 +96,38 @@ export const getParties = async () => {
   }));
 };
 
-export const getPartyById = async (id: string) => {
-  const res = await query('SELECT * FROM parties WHERE id = $1', [id]);
+export const getPartyById = async (id: string, client?: any) => {
+  const runner = client || { query };
+  const res = await runner.query(
+    `SELECT * FROM parties WHERE id = $1`,
+    [id]
+  );
   if (res.rows.length === 0) throw new AppError('NOT_FOUND', 'Party not found', 404);
-  return res.rows[0];
+  const row = res.rows[0];
+
+  const pbcRes = await runner.query(
+    `SELECT pbc.*, bt.name as default_template_name
+     FROM party_billing_configs pbc
+     LEFT JOIN bill_templates bt ON bt.id = pbc.default_template_id
+     WHERE pbc.party_id = $1`,
+    [id]
+  );
+  const pbcRow = (pbcRes && pbcRes.rows && pbcRes.rows[0]) || {};
+  const billingConfig = {
+    billing_mode: pbcRow.billing_mode || 'INDIVIDUAL',
+    default_template_id: pbcRow.default_template_id || null,
+    default_template_name: pbcRow.default_template_name || null,
+    tds_treatment: pbcRow.tds_treatment || null,
+    required_fields: pbcRow.required_fields || {},
+    numbering_series_policy: pbcRow.numbering_series_policy || {}
+  };
+  return {
+    ...row,
+    billing_config: billingConfig,
+    billing_configuration: billingConfig
+  };
 };
+
 
 export const getPartyFinancials = async (id: string) => {
   // Financial position
@@ -266,23 +294,56 @@ export const updateParty = async (id: string, data: any, userId: string) => {
   return updated;
 };
 
-export const updateBillingConfig = async (id: string, config: any, userId: string) => {
-  const existing = await getPartyById(id);
-  const sql = `UPDATE parties SET billing_configuration = $2, updated_at = NOW() WHERE id = $1 RETURNING *`;
-  const res = await query(sql, [id, config]);
-  const updated = res.rows[0];
+export const updateBillingConfig = async (id: string, configInput: any, userId: string) => {
+  return withTransaction(async (client) => {
+    const existing = await getPartyById(id, client);
 
-  await createAudit({
-    entityType: 'PARTY',
-    entityId: id,
-    action: 'UPDATE_BILLING_CONFIG',
-    previousState: existing,
-    newState: updated,
-    userId
+    // Extract either from nested billing_configuration or direct properties
+    const cfg = configInput?.billing_configuration || configInput || {};
+    const billing_mode = cfg.billing_mode || 'INDIVIDUAL';
+    const default_template_id = cfg.default_template_id || null;
+    const tds_treatment = cfg.tds_treatment || null;
+    const required_fields = cfg.required_fields || {};
+    const numbering_series_policy = cfg.numbering_series_policy || {};
+
+    // Validate default_template_id if provided
+    if (default_template_id) {
+      const tCheck = await client.query('SELECT id, name FROM bill_templates WHERE id = $1', [default_template_id]);
+      if (tCheck.rowCount === 0) {
+        throw new AppError('VALIDATION_ERROR', 'Referenced default billing template not found', 400);
+      }
+    }
+
+    const sql = `
+      INSERT INTO party_billing_configs (party_id, billing_mode, default_template_id, tds_treatment, required_fields, numbering_series_policy, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, now())
+      ON CONFLICT (party_id) DO UPDATE SET
+        billing_mode = EXCLUDED.billing_mode,
+        default_template_id = EXCLUDED.default_template_id,
+        tds_treatment = EXCLUDED.tds_treatment,
+        required_fields = EXCLUDED.required_fields,
+        numbering_series_policy = EXCLUDED.numbering_series_policy,
+        updated_at = now()
+      RETURNING *
+    `;
+    const res = await client.query(sql, [id, billing_mode, default_template_id, tds_treatment, required_fields, numbering_series_policy]);
+    const updatedConfig = res.rows[0];
+
+    const updatedParty = await getPartyById(id, client);
+
+    await createAudit({
+      entityType: 'PARTY_BILLING_CONFIG',
+      entityId: id,
+      action: 'UPDATE_BILLING_CONFIG',
+      previousState: existing.billing_config,
+      newState: updatedConfig,
+      userId
+    }, client);
+
+    return updatedParty;
   });
-
-  return updated;
 };
+
 
 export const getAvailableCredits = async (partyId: string) => {
   await getPartyById(partyId);

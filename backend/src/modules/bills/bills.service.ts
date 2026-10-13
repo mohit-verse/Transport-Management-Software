@@ -93,6 +93,14 @@ export const generateBill = async (data: any, userId: string) => {
     const vQuery =
       "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, 1, 'Version 1', 'ACTIVE', $2, $3, $4, $5) RETURNING *";
 
+    let templateIdToUse = data.template_id || null;
+    if (!templateIdToUse) {
+      const pbcRes = await client.query('SELECT default_template_id FROM party_billing_configs WHERE party_id = $1', [data.party_id]);
+      if (pbcRes.rows.length > 0 && pbcRes.rows[0].default_template_id) {
+        templateIdToUse = pbcRes.rows[0].default_template_id;
+      }
+    }
+
     let snapshot = data.template_snapshot || {};
     if (!snapshot.layout) snapshot.layout = {};
     if (!snapshot.components) snapshot.components = [];
@@ -101,11 +109,12 @@ export const generateBill = async (data: any, userId: string) => {
 
     const vRes = await client.query(vQuery, [
       bill.id,
-      data.template_id || null,
+      templateIdToUse,
       snapshot,
       data.resolved_dynamic_fields || {},
       userId
     ]);
+
     const version = vRes.rows[0];
 
     for (const item of lineItems) {
@@ -480,10 +489,11 @@ export const createVersion = async (id: string, data: any, userId: string) => {
     }
 
     const { rows: versions } = await client.query(
-      'SELECT version_number FROM bill_versions WHERE bill_id = $1 ORDER BY version_number DESC LIMIT 1',
+      'SELECT version_number, template_id FROM bill_versions WHERE bill_id = $1 ORDER BY version_number DESC LIMIT 1',
       [id]
     );
     const nextVersion = (versions[0]?.version_number || 0) + 1;
+
 
     let snapshot = data.template_snapshot || {};
     if (!snapshot.layout) snapshot.layout = {};
@@ -612,13 +622,14 @@ export const createVersion = async (id: string, data: any, userId: string) => {
       bill.id,
       nextVersion,
       'Version ' + nextVersion,
-      data.template_id || null,
+      data.template_id !== undefined ? data.template_id : (versions[0]?.template_id || null),
       snapshot,
       headerSnapshot,
       totalsSnapshot,
       data.resolved_dynamic_fields || {},
       userId
     ]);
+
     const version = vRes.rows[0];
 
     // If items were modified, synchronize bill_items

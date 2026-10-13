@@ -41,6 +41,9 @@ import dashboardRouter from './modules/dashboard/dashboard.routes';
 import searchRouter from './modules/search/search.routes';
 import { otherBusinessRouter } from './modules/other-business/other-business.routes';
 import { financialYearsRouter } from './modules/financial-years/financial-years.routes';
+import { dynamicFieldsRouter } from './modules/bill-templates/dynamic-fields.routes';
+import { billTemplatesRouter } from './modules/bill-templates/bill-templates.routes';
+import { numberingSeriesRouter } from './modules/numbering-series/numbering-series.routes';
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -58,6 +61,9 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/other-business-categories', otherBusinessRouter);
+app.use('/api/dynamic-fields', dynamicFieldsRouter);
+app.use('/api/bill-templates', billTemplatesRouter);
+app.use('/api/numbering-series', numberingSeriesRouter);
 
 // 404 handler
 app.use((req, res, next) => {

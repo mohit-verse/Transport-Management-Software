@@ -1,4 +1,4 @@
-import { resolveTextTemplate, formatCurrency, formatDate, DynamicFieldContext } from '../bill-templates/dynamic-fields.resolver';
+import { resolveTextTemplate, formatCurrency, formatDate, amountToWordsINR, DynamicFieldContext } from '../bill-templates/dynamic-fields.resolver';
 
 export interface BillPdfData {
   id: string;
@@ -95,7 +95,9 @@ export function generateBillPdfBuffer(bill: BillPdfData): Buffer {
     },
     calculated: {
       total_freight: bill.total_amount,
-      balance_payable: bill.balance_amount || bill.total_amount
+      balance_payable: bill.balance_amount || bill.total_amount,
+      total_amount: bill.total_amount,
+      amount_in_words: amountToWordsINR(bill.total_amount)
     },
     items: bill.items || []
   };
@@ -230,6 +232,22 @@ function renderStructuredTemplate(
           const w = comp.width || 120;
           const h = comp.height || 40;
           const label = comp.content_json?.label || comp.component_key || comp.component_type;
+
+          // Check if this asset component is marked required
+          const isRequired = comp.content_json?.required === true || comp.content_json?.is_required === true;
+          if (isRequired) {
+            const snapshotAssets = bill.template_snapshot?.assets || [];
+            const matchingAsset = snapshotAssets.find((a: any) =>
+              (comp.content_json?.storage_key && a.storage_key === comp.content_json.storage_key) ||
+              (comp.content_json?.asset_id && a.id === comp.content_json.asset_id) ||
+              (comp.content_json?.asset_type && a.asset_type === comp.content_json.asset_type) ||
+              (a.asset_type === comp.component_type)
+            );
+            if (!matchingAsset || !matchingAsset.storage_key) {
+              throw new Error(`Required bill template asset "${label}" (${comp.component_type}) is missing from template snapshot`);
+            }
+          }
+
           // Render framed placeholder box
           lines.push(`${posX} ${posY - h} ${w} ${h} re S`);
           lines.push('BT');

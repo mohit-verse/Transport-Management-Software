@@ -791,6 +791,30 @@ export const getBillPdf = async (id: string, versionNumber?: number) => {
 
   const fileExists = await storageService.exists(storageKey);
   if (!fileExists) {
+    // If template snapshot has required assets, ensure they physically exist in storage before regenerating
+    const snapshotAssets = targetVersion?.template_snapshot?.assets || [];
+    const snapshotComps = targetVersion?.template_snapshot?.components || [];
+    for (const comp of snapshotComps) {
+      if (['IMAGE', 'LOGO', 'SIGNATURE', 'STAMP'].includes(comp.component_type) && (comp.content_json?.required === true || comp.content_json?.is_required === true)) {
+        const matchingAsset = snapshotAssets.find((a: any) =>
+          (comp.content_json?.storage_key && a.storage_key === comp.content_json.storage_key) ||
+          (comp.content_json?.asset_id && a.id === comp.content_json.asset_id) ||
+          (comp.content_json?.asset_type && a.asset_type === comp.content_json.asset_type) ||
+          (a.asset_type === comp.component_type)
+        );
+        if (matchingAsset && matchingAsset.storage_key) {
+          const assetPhysicalExists = await storageService.exists(matchingAsset.storage_key);
+          if (!assetPhysicalExists) {
+            throw new AppError(
+              'BUSINESS_RULE_VIOLATION',
+              `Required asset file "${matchingAsset.file_name}" (${matchingAsset.storage_key}) is missing from storage for historical bill version ${vNum}`,
+              422
+            );
+          }
+        }
+      }
+    }
+
     // Collect version items directly from bill_version_items of the target version
     const versionItems = (targetVersion && Array.isArray(targetVersion.items) && targetVersion.items.length > 0)
       ? targetVersion.items

@@ -10,7 +10,8 @@ import {
   formatCurrency,
   formatDate,
   formatBoolean,
-  formatNumber
+  formatNumber,
+  amountToWordsINR
 } from '../src/modules/bill-templates/dynamic-fields.resolver';
 import { seedDynamicFields } from '../src/modules/bill-templates/dynamic-fields.seeder';
 
@@ -675,5 +676,237 @@ describe('Phase 4K-C — Historical PDF Immutability Against Template Modificati
     const pdf2Text = pdfBytes2.toString('utf-8');
     expect(pdf2Text).toContain('ORIGINAL TEMPLATE HEADER');
     expect(pdf2Text).not.toContain('MUTATED HEADER TEXT 2027');
+  });
+
+  describe('Phase 4K-C Remediation - Indian Numbering System Currency-to-Words Converter', () => {
+    it('handles zero, null, undefined, empty, and invalid inputs deterministically', () => {
+      expect(amountToWordsINR(0)).toBe('Zero Rupees Only');
+      expect(amountToWordsINR('0')).toBe('Zero Rupees Only');
+      expect(amountToWordsINR(null)).toBe('Zero Rupees Only');
+      expect(amountToWordsINR(undefined)).toBe('Zero Rupees Only');
+      expect(amountToWordsINR('')).toBe('Zero Rupees Only');
+      expect(amountToWordsINR('invalid')).toBe('Zero Rupees Only');
+    });
+
+    it('handles singular rupee and paise fractions with explicit rounding', () => {
+      expect(amountToWordsINR(1)).toBe('One Rupee Only');
+      expect(amountToWordsINR(0.5)).toBe('Fifty Paise Only');
+      expect(amountToWordsINR(0.05)).toBe('Five Paise Only');
+      expect(amountToWordsINR(0.75)).toBe('Seventy Five Paise Only');
+      expect(amountToWordsINR(1.01)).toBe('One Rupee and One Paise Only');
+      // Rounding check: 100.555 rounds to 100.56
+      expect(amountToWordsINR(100.555)).toBe('One Hundred Rupees and Fifty Six Paise Only');
+    });
+
+    it('handles negative currency values with Minus prefix', () => {
+      expect(amountToWordsINR(-500)).toBe('Minus Five Hundred Rupees Only');
+      expect(amountToWordsINR(-1500.5)).toBe('Minus One Thousand Five Hundred Rupees and Fifty Paise Only');
+    });
+
+    it('handles thousands, lakhs, and crores accurately according to the Indian numbering system', () => {
+      expect(amountToWordsINR(100)).toBe('One Hundred Rupees Only');
+      expect(amountToWordsINR(105)).toBe('One Hundred Five Rupees Only');
+      expect(amountToWordsINR(1250)).toBe('One Thousand Two Hundred Fifty Rupees Only');
+      expect(amountToWordsINR(12345)).toBe('Twelve Thousand Three Hundred Forty Five Rupees Only');
+      expect(amountToWordsINR(100000)).toBe('One Lakh Rupees Only');
+      expect(amountToWordsINR(125000)).toBe('One Lakh Twenty Five Thousand Rupees Only');
+      expect(amountToWordsINR(125000.5)).toBe('One Lakh Twenty Five Thousand Rupees and Fifty Paise Only');
+      expect(amountToWordsINR(2500000)).toBe('Twenty Five Lakh Rupees Only');
+      expect(amountToWordsINR(10000000)).toBe('One Crore Rupees Only');
+      expect(amountToWordsINR(123456789.25)).toBe(
+        'Twelve Crore Thirty Four Lakh Fifty Six Thousand Seven Hundred Eighty Nine Rupees and Twenty Five Paise Only'
+      );
+    });
+
+    it('handles boundary values cleanly (99, 100, 999, 1000, 99999, 100000, 9999999, 10000000)', () => {
+      expect(amountToWordsINR(99)).toBe('Ninety Nine Rupees Only');
+      expect(amountToWordsINR(100)).toBe('One Hundred Rupees Only');
+      expect(amountToWordsINR(999)).toBe('Nine Hundred Ninety Nine Rupees Only');
+      expect(amountToWordsINR(1000)).toBe('One Thousand Rupees Only');
+      expect(amountToWordsINR(99999)).toBe('Ninety Nine Thousand Nine Hundred Ninety Nine Rupees Only');
+      expect(amountToWordsINR(100000)).toBe('One Lakh Rupees Only');
+      expect(amountToWordsINR(9999999)).toBe('Ninety Nine Lakh Ninety Nine Thousand Nine Hundred Ninety Nine Rupees Only');
+      expect(amountToWordsINR(10000000)).toBe('One Crore Rupees Only');
+    });
+
+    it('resolves calculated.amount_in_words dynamically without being empty', () => {
+      const context = {
+        billing: { total_amount: 142500 },
+        calculated: { total_amount: 142500 }
+      };
+      const result = resolveFieldValue('calculated.amount_in_words', context);
+      expect(result).toBe('One Lakh Forty Two Thousand Five Hundred Rupees Only');
+
+      // Pre-calculated override preserves manual string if provided
+      const overrideContext = {
+        calculated: { amount_in_words: 'Custom One Lakh Only' }
+      };
+      expect(resolveFieldValue('calculated.amount_in_words', overrideContext)).toBe('Custom One Lakh Only');
+    });
+  });
+
+  describe('Phase 4K-C Remediation - Destination Unloading Charge Resolution', () => {
+    it('resolves destination unloading charges in row context for multiple destinations with distinct charges', () => {
+      const dest1 = {
+        id: 'dest-001',
+        from_location: 'Mundra Port',
+        to_location: 'Jaipur Depot',
+        unloading_charge: 1500
+      };
+      const dest2 = {
+        id: 'dest-002',
+        from_location: 'Jaipur Depot',
+        to_location: 'Delhi Hub',
+        unloading_charge: 2500
+      };
+
+      const context = {
+        destinations: [dest1, dest2]
+      };
+
+      const charge1 = resolveFieldValue('journey.unloading_charge', context, dest1);
+      const charge2 = resolveFieldValue('journey.unloading_charge', context, dest2);
+
+      expect(charge1).toBe('INR 1,500.00');
+      expect(charge2).toBe('INR 2,500.00');
+    });
+
+    it('strictly distinguishes party-side and vehicle-owner-side destination charges', () => {
+      const multiSideDest = {
+        id: 'dest-003',
+        from_location: 'Kandla',
+        to_location: 'Ahmedabad',
+        unloading_charges: [
+          { side: 'PARTY', amount: 1800 },
+          { side: 'VEHICLE_OWNER', amount: 1400 }
+        ]
+      };
+
+      // Party context (default for customer bills)
+      const partyContext = {
+        party: { name: 'Acme Logistics' },
+        side: 'PARTY' as const
+      };
+      const partyCharge = resolveFieldValue('journey.unloading_charge', partyContext, multiSideDest);
+      expect(partyCharge).toBe('INR 1,800.00');
+
+      // Vehicle owner context
+      const ownerContext = {
+        vehicle_owner: { name: 'Owner Transport' },
+        side: 'VEHICLE_OWNER' as const
+      };
+      const ownerCharge = resolveFieldValue('journey.unloading_charge', ownerContext, multiSideDest);
+      expect(ownerCharge).toBe('INR 1,400.00');
+    });
+
+    it('resolves destination charges in consolidated bill repeated rows', () => {
+      const repeatedItems = [
+        {
+          trip_number: 'TRP-101',
+          id: 'dest-101',
+          destination: 'Jaipur',
+          unloading_charge: 1200
+        },
+        {
+          trip_number: 'TRP-102',
+          id: 'dest-102',
+          destination: 'Kota',
+          unloading_charge: 1600
+        }
+      ];
+
+      const context = {
+        items: repeatedItems
+      };
+
+      expect(resolveFieldValue('journey.unloading_charge', context, repeatedItems[0])).toBe('INR 1,200.00');
+      expect(resolveFieldValue('journey.unloading_charge', context, repeatedItems[1])).toBe('INR 1,600.00');
+    });
+  });
+
+  describe('Phase 4K-C Remediation - Historical Asset Retention and Required Asset Checks', () => {
+    it('throws error when a required template asset is missing from snapshot (preventing silent omission)', () => {
+      const incompleteBillData = {
+        id: 'bill-req-asset-test',
+        bill_number: 'SRL/26-27/REQ-01',
+        bill_date: '2026-04-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'INDIVIDUAL',
+        total_amount: 50000,
+        template_snapshot: {
+          layout: {},
+          components: [
+            {
+              component_type: 'IMAGE',
+              component_key: 'logo',
+              position_x: 20,
+              position_y: 20,
+              content_json: {
+                label: 'SRL Official Logo',
+                required: true,
+                storage_key: 'templates/assets/missing_logo.png'
+              }
+            }
+          ],
+          assets: [] // Intentionally missing assets
+        },
+        items: [
+          {
+            sequence_no: 1,
+            description: 'Freight Item',
+            line_amount: 50000
+          }
+        ]
+      };
+
+      expect(() => {
+        generateBillPdfBuffer(incompleteBillData as any);
+      }).toThrow(/Required bill template asset "SRL Official Logo" \(IMAGE\) is missing from template snapshot/);
+    });
+
+    it('renders successfully when required asset is present in snapshot assets', () => {
+      const validBillData = {
+        id: 'bill-req-asset-valid',
+        bill_number: 'SRL/26-27/REQ-02',
+        bill_date: '2026-04-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'INDIVIDUAL',
+        total_amount: 50000,
+        template_snapshot: {
+          layout: {},
+          components: [
+            {
+              component_type: 'IMAGE',
+              component_key: 'logo',
+              position_x: 20,
+              position_y: 20,
+              content_json: {
+                label: 'SRL Official Logo',
+                required: true,
+                storage_key: 'templates/assets/valid_logo.png'
+              }
+            }
+          ],
+          assets: [
+            {
+              asset_type: 'IMAGE',
+              file_name: 'valid_logo.png',
+              storage_key: 'templates/assets/valid_logo.png'
+            }
+          ]
+        },
+        items: [
+          {
+            sequence_no: 1,
+            description: 'Freight Item',
+            line_amount: 50000
+          }
+        ]
+      };
+
+      const pdfBuf = generateBillPdfBuffer(validBillData as any);
+      expect(pdfBuf).toBeInstanceOf(Buffer);
+      expect(pdfBuf.length).toBeGreaterThan(500);
+    });
   });
 });

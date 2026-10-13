@@ -458,9 +458,10 @@ export async function deleteAsset(templateId: string, assetId: string, userId: s
     // Check if referenced in historical bill version snapshots
     const histCheck = await client.query(
       `SELECT id FROM bill_versions
-       WHERE template_id = $1
-         AND template_snapshot->'assets' @> jsonb_build_array(jsonb_build_object('storage_key', $2::text))`,
-      [templateId, asset.storage_key]
+       WHERE template_snapshot->'assets' @> jsonb_build_array(jsonb_build_object('storage_key', $1::text))
+          OR template_snapshot::text LIKE ('%' || $1::text || '%')
+       LIMIT 1`,
+      [asset.storage_key]
     );
 
     const isReferencedInHistory = histCheck.rowCount && histCheck.rowCount > 0;
@@ -557,7 +558,20 @@ export async function previewTemplate(data: PreviewTemplateInput) {
         detention_amount: 2000,
         total_freight: 52000,
         status: 'COMPLETED',
-        pod_status: 'RECEIVED'
+        pod_status: 'RECEIVED',
+        destinations: [
+          {
+            sequence_no: 1,
+            from_location: 'Mundra Port',
+            to_location: 'Jaipur Depot',
+            distance_km: 750,
+            unloading_charge: 1500,
+            unloading_charges: [
+              { side: 'PARTY', amount: 1500 },
+              { side: 'VEHICLE_OWNER', amount: 1200 }
+            ]
+          }
+        ]
       },
       {
         trip_number: 'TRP-2026-002',
@@ -571,7 +585,20 @@ export async function previewTemplate(data: PreviewTemplateInput) {
         detention_amount: 0,
         total_freight: 40000,
         status: 'COMPLETED',
-        pod_status: 'RECEIVED'
+        pod_status: 'RECEIVED',
+        destinations: [
+          {
+            sequence_no: 1,
+            from_location: 'Kandla',
+            to_location: 'Ahmedabad',
+            distance_km: 300,
+            unloading_charge: 800,
+            unloading_charges: [
+              { side: 'PARTY', amount: 800 },
+              { side: 'VEHICLE_OWNER', amount: 800 }
+            ]
+          }
+        ]
       }
     ],
     items: [

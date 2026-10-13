@@ -96,8 +96,18 @@ export const getTripById = async (id: string) => {
     party: trip.party_id ? { id: trip.party_id, name: trip.party_name } : null,
     market_vehicle: trip.market_vehicle_id ? { id: trip.market_vehicle_id, vehicle_number: trip.market_vehicle_number } : null,
     vehicle_owner: trip.vehicle_owner_id ? { id: trip.vehicle_owner_id, owner_name: trip.vehicle_owner_name } : null,
-    own_fleet_vehicle: trip.own_fleet_vehicle_id ? { id: trip.own_fleet_vehicle_id, vehicle_number: trip.own_fleet_vehicle_number } : null,
-    destinations: destinationsRes.rows,
+    destinations: destinationsRes.rows.map((d: any) => {
+      const destCharges = unloadingChargesRes.rows.filter((uc: any) => uc.trip_destination_id === d.id);
+      const partyCharge = destCharges.find((uc: any) => uc.side === 'PARTY')?.amount ?? null;
+      const ownerCharge = destCharges.find((uc: any) => uc.side === 'VEHICLE_OWNER')?.amount ?? null;
+      return {
+        ...d,
+        unloading_charges: destCharges,
+        party_unloading_charge: partyCharge,
+        vehicle_owner_unloading_charge: ownerCharge,
+        unloading_charge: partyCharge
+      };
+    }),
     financials: {
       party: partyFinancialsRes.rows[0] || null,
       vehicle_owner: ownerFinancialsRes.rows[0] || null,

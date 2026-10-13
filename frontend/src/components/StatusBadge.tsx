@@ -3,10 +3,11 @@ import { cn } from '../utils/utils';
 
 export type StatusType = 
   | 'success' | 'warning' | 'error' | 'info' | 'default'
-  | 'CREATED' | 'LOADING' | 'IN_TRANSIT' | 'COMPLETED' | 'SETTLED' | 'CANCELLED';
+  | 'CREATED' | 'LOADING' | 'IN_TRANSIT' | 'COMPLETED' | 'SETTLED' | 'CANCELLED'
+  | 'GENERATED' | 'SUBMITTED' | 'PAID';
 
 interface StatusBadgeProps {
-  status: StatusType;
+  status: StatusType | string;
   label?: string;
   className?: string;
 }
@@ -14,10 +15,10 @@ interface StatusBadgeProps {
 export const StatusBadge = ({ status, label, className }: StatusBadgeProps) => {
   const getStyle = () => {
     switch (status) {
-      case 'success': case 'COMPLETED': case 'SETTLED': return 'bg-green-100 text-green-800';
-      case 'warning': case 'LOADING': return 'bg-yellow-100 text-yellow-800';
-      case 'error': case 'CANCELLED': return 'bg-red-100 text-red-800';
-      case 'info': case 'IN_TRANSIT': return 'bg-blue-100 text-blue-800';
+      case 'PAID': case 'success': case 'COMPLETED': case 'SETTLED': return 'bg-green-100 text-green-800';
+      case 'SUBMITTED': case 'info': case 'IN_TRANSIT': return 'bg-blue-100 text-blue-800';
+      case 'GENERATED': case 'warning': case 'LOADING': return 'bg-amber-100 text-amber-800';
+      case 'CANCELLED': case 'error': return 'bg-red-100 text-red-800';
       case 'default': case 'CREATED': default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -31,6 +32,9 @@ export const StatusBadge = ({ status, label, className }: StatusBadgeProps) => {
       case 'COMPLETED': return 'Completed';
       case 'SETTLED': return 'Settled';
       case 'CANCELLED': return 'Cancelled';
+      case 'GENERATED': return 'Generated';
+      case 'SUBMITTED': return 'Submitted';
+      case 'PAID': return 'Paid';
       default: return String(status);
     }
   };

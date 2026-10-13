@@ -436,3 +436,240 @@ export const uploadPaymentDocument = async (paymentId: string, documentType = 'P
   const response = await api.post('/api/documents/payment', { payment_id: paymentId, document_type: documentType });
   return response.data;
 };
+
+// ==========================================
+// Bills API
+// ==========================================
+
+export interface BillListItem {
+  id: string;
+  bill_number: string;
+  party_id: string;
+  party_name: string;
+  financial_year_id: string;
+  financial_year_code: string;
+  bill_status: 'GENERATED' | 'SUBMITTED' | 'PAID' | 'CANCELLED';
+  billing_mode: 'INDIVIDUAL' | 'CONSOLIDATED';
+  bill_date: string;
+  current_version: number;
+  total_amount: string | number;
+  paid_amount: string | number;
+  balance_amount: string | number;
+  submitted_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+}
+
+export interface BillListParams {
+  search?: string;
+  party_id?: string;
+  bill_status?: 'GENERATED' | 'SUBMITTED' | 'PAID' | 'CANCELLED';
+  from_date?: string;
+  to_date?: string;
+  financial_year_id?: string;
+  billing_mode?: 'INDIVIDUAL' | 'CONSOLIDATED';
+  page?: number;
+  limit?: number;
+  sort_by?: 'bill_date' | 'bill_number' | 'total_amount' | 'created_at';
+  sort_order?: 'asc' | 'desc' | 'ASC' | 'DESC';
+}
+
+export interface BillListResponse {
+  success: boolean;
+  data: BillListItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface BillItem {
+  id: string;
+  bill_id: string;
+  trip_id?: string | null;
+  sequence_no: number;
+  description: string;
+  quantity?: number | null;
+  unit_price?: number | null;
+  line_amount: string | number;
+  is_active: boolean;
+  trip_number?: string;
+  trip_date?: string;
+  vehicle_number?: string;
+  route_origin?: string;
+  route_destination?: string;
+}
+
+export interface BillVersion {
+  id: string;
+  bill_id: string;
+  version_number: number;
+  version_label: string;
+  version_status: 'ACTIVE' | 'SUPERSEDED' | 'CANCELLED';
+  template_id?: string | null;
+  template_snapshot: Record<string, any>;
+  header_snapshot: Record<string, any>;
+  totals_snapshot: Record<string, any>;
+  resolved_dynamic_fields?: Record<string, any> | null;
+  created_by: string;
+  creator_name?: string;
+  created_at: string;
+  items?: BillItem[];
+}
+
+export interface BillDetail {
+  id: string;
+  bill_number: string;
+  party_id: string;
+  party_name: string;
+  financial_year_id: string;
+  financial_year_code: string;
+  bill_status: 'GENERATED' | 'SUBMITTED' | 'PAID' | 'CANCELLED';
+  billing_mode: 'INDIVIDUAL' | 'CONSOLIDATED';
+  bill_date: string;
+  current_version: number;
+  total_amount: string | number;
+  paid_amount: string | number;
+  balance_amount: string | number;
+  submitted_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  cancelled_by?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  party: {
+    id: string;
+    name: string;
+    primary_mobile?: string;
+    gstin?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pin_code?: string;
+    billing_address?: string;
+  };
+  financial_year: {
+    id: string;
+    code: string;
+    start_date: string;
+    end_date: string;
+  };
+  creator?: { id: string; name: string };
+  canceller?: { id: string; name: string } | null;
+  items: BillItem[];
+  versions: BillVersion[];
+  allocations: Array<{
+    id: string;
+    payment_id: string;
+    payment_number?: string;
+    payment_date?: string;
+    payment_type?: string;
+    payment_mode?: string;
+    payment_status?: string;
+    allocation_type: string;
+    allocation_amount: string | number;
+    allocation_status: 'ACTIVE' | 'REVERSED';
+    reversed_at: string | null;
+    created_at: string;
+    created_by_name?: string;
+  }>;
+}
+
+export interface EligibleTrip {
+  id: string;
+  trip_number: string;
+  trip_date: string;
+  loading_date: string | null;
+  unloading_date: string | null;
+  route_origin: string;
+  route_destination: string;
+  vehicle_number: string;
+  vehicle_relationship: string;
+  status: string;
+  pod_status: string;
+  pod_received_at: string | null;
+  receivable_amount: string | number;
+  freight_amount: string | number;
+  detention_amount: string | number;
+}
+
+export interface NumberingSeries {
+  id: string;
+  party_id: string;
+  party_name?: string;
+  financial_year_id: string;
+  financial_year_code?: string;
+  series_code: string;
+  prefix: string;
+  current_number: number;
+  is_active: boolean;
+}
+
+export interface FinancialYear {
+  id: string;
+  code: string;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+}
+
+export const getBills = async (params?: BillListParams): Promise<BillListResponse> => {
+  const response = await api.get('/api/bills', { params });
+  return response.data;
+};
+
+export const getBill = async (id: string): Promise<{ success: boolean; data: BillDetail }> => {
+  const response = await api.get(`/api/bills/${id}`);
+  return response.data;
+};
+
+export const getEligibleTrips = async (partyId: string): Promise<{ success: boolean; data: EligibleTrip[] }> => {
+  const response = await api.get('/api/bills/eligible-trips', { params: { party_id: partyId } });
+  return response.data;
+};
+
+export const getNumberingSeries = async (partyId?: string, financialYearId?: string): Promise<{ success: boolean; data: NumberingSeries[] }> => {
+  const response = await api.get('/api/bills/numbering-series', { params: { party_id: partyId, financial_year_id: financialYearId } });
+  return response.data;
+};
+
+export const getFinancialYears = async (): Promise<{ success: boolean; data: FinancialYear[] }> => {
+  const response = await api.get('/api/financial-years');
+  return response.data;
+};
+
+export const generateBill = async (data: any): Promise<{ success: boolean; data: { bill: any; version: any } }> => {
+  const response = await api.post('/api/bills', data);
+  return response.data;
+};
+
+export const submitBill = async (id: string): Promise<{ success: boolean; data: any }> => {
+  const response = await api.post(`/api/bills/${id}/submit`);
+  return response.data;
+};
+
+export const cancelBill = async (id: string, cancel_reason: string): Promise<{ success: boolean; data: any }> => {
+  const response = await api.post(`/api/bills/${id}/cancel`, { cancel_reason });
+  return response.data;
+};
+
+export const createBillVersion = async (id: string, data: any): Promise<{ success: boolean; data: BillVersion }> => {
+  const response = await api.post(`/api/bills/${id}/versions`, data);
+  return response.data;
+};
+
+export const getBillVersion = async (id: string, versionNumber: number): Promise<{ success: boolean; data: BillVersion }> => {
+  const response = await api.get(`/api/bills/${id}/versions/${versionNumber}`);
+  return response.data;
+};
+
+export const downloadBillPdf = async (id: string, versionNumber?: number): Promise<Blob> => {
+  const url = versionNumber ? `/api/bills/${id}/versions/${versionNumber}/pdf` : `/api/bills/${id}/pdf`;
+  const response = await api.get(url, { responseType: 'blob' });
+  return response.data;
+};
+

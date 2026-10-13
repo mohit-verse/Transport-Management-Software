@@ -31,6 +31,9 @@ import Payments from './pages/Payments';
 import CreatePayment from './pages/CreatePayment';
 import EditPayment from './pages/EditPayment';
 import PaymentDetail from './pages/PaymentDetail';
+import Bills from './pages/Bills';
+import CreateBill from './pages/CreateBill';
+import BillDetail from './pages/BillDetail';
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: UserRole[] }) => {
@@ -85,9 +88,9 @@ function App() {
               <Route path="/payments/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><EditPayment /></ProtectedRoute>} />
               <Route path="/payments/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><PaymentDetail /></ProtectedRoute>} />
               
-              <Route path="/bills" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.BillsPage /></ProtectedRoute>} />
-              <Route path="/bills/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.BillFormPage /></ProtectedRoute>} />
-              <Route path="/bills/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Pages.BillDetailsPage /></ProtectedRoute>} />
+              <Route path="/bills" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><Bills /></ProtectedRoute>} />
+              <Route path="/bills/new" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><CreateBill /></ProtectedRoute>} />
+              <Route path="/bills/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><BillDetail /></ProtectedRoute>} />
               
               <Route path="/reports" element={<ProtectedRoute allowedRoles={['OWNER', 'CA']}><Pages.ReportsPage /></ProtectedRoute>} />
               <Route path="/documents" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.DocumentsPage /></ProtectedRoute>} />

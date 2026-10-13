@@ -21,6 +21,7 @@ billsRouter.post('/eligibility', requireRole(['OWNER', 'STAFF']), validateReques
 billsRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.getBill);
 billsRouter.get('/:id/pdf', requireRole(['OWNER', 'STAFF', 'CA']), controller.getBillPdf);
 billsRouter.get('/:id/versions/:versionNumber', requireRole(['OWNER', 'STAFF', 'CA']), controller.getBillVersion);
+billsRouter.get('/:id/versions/:versionNumber/pdf', requireRole(['OWNER', 'STAFF', 'CA']), controller.getBillVersionPdf);
 
 // Mutations
 billsRouter.post('/:id/submit', requireRole(['OWNER', 'STAFF']), controller.submitBill);

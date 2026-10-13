@@ -30,7 +30,9 @@ export const cancelBillSchema = z.object({
 export const createVersionSchema = z.object({
   body: z.object({
     template_id: z.string().uuid().optional().nullable(),
-    template_snapshot: z.record(z.any()),
+    template_snapshot: z.record(z.any()).optional().nullable(),
+    header_snapshot: z.record(z.any()).optional().nullable(),
+    totals_snapshot: z.record(z.any()).optional().nullable(),
     resolved_dynamic_fields: z.record(z.any()).optional().nullable(),
     items: z.array(z.object({
       trip_id: z.string().uuid().optional().nullable(),

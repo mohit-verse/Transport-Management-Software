@@ -350,19 +350,33 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
     });
   });
 
-  describe('6. Bill Submission and Versioning', () => {
+  describe('6. Bill Submission, Versioning, and Correction Integrity', () => {
     it('submits a generated bill', async () => {
       const res = await request(app).post(`/api/bills/${billId}/submit`).set('Authorization', 'Bearer ' + staffToken);
       expect(res.status).toBe(200);
       expect(res.body.data.bill_status).toBe('SUBMITTED');
     });
 
-    it('creates Version 2 of the bill', async () => {
+    it('creates Version 2 with modified line amounts under the same bill number', async () => {
       const res = await request(app)
         .post(`/api/bills/${billId}/versions`)
         .set('Authorization', 'Bearer ' + staffToken)
         .send({
-          template_snapshot: { layout: { theme: 'modern' } }
+          template_snapshot: { layout: { theme: 'modern' } },
+          items: [
+            {
+              trip_id: tripId1,
+              sequence_no: 1,
+              description: 'Revised freight for Trip TRP-001',
+              line_amount: 20000
+            },
+            {
+              trip_id: tripId2,
+              sequence_no: 2,
+              description: 'Revised freight for Trip TRP-002',
+              line_amount: 22000
+            }
+          ]
         });
       expect(res.status).toBe(201);
       expect(res.body.data.version_number).toBe(2);
@@ -371,9 +385,13 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
       const detailRes = await request(app).get(`/api/bills/${billId}`).set('Authorization', 'Bearer ' + ownerToken);
       expect(detailRes.body.data.versions.length).toBe(2);
       expect(detailRes.body.data.current_version).toBe(2);
+      expect(Number(detailRes.body.data.total_amount)).toBe(42000);
+      expect(Number(detailRes.body.data.balance_amount)).toBe(42000);
+      expect(detailRes.body.data.items[0].line_amount).toBe('20000.00');
+      expect(detailRes.body.data.items[1].line_amount).toBe('22000.00');
     });
 
-    it('inspects historical Version 1 snapshot and its items', async () => {
+    it('preserves historical Version 1 snapshot and its items completely immutable', async () => {
       const res = await request(app)
         .get(`/api/bills/${billId}/versions/1`)
         .set('Authorization', 'Bearer ' + caToken);
@@ -381,6 +399,85 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
       expect(res.body.data.version_number).toBe(1);
       expect(res.body.data.version_status).toBe('SUPERSEDED');
       expect(res.body.data.items.length).toBe(2);
+      expect(Number(res.body.data.items[0].line_amount)).toBe(15000);
+      expect(Number(res.body.data.items[1].line_amount)).toBe(20000);
+
+      // Verify DB trigger bill_version_items_append_only prevents mutation of historical version items
+      const v1Id = res.body.data.id;
+      await expect(
+        pool.query('UPDATE bill_version_items SET line_amount = 99999 WHERE bill_version_id = $1', [v1Id])
+      ).rejects.toThrow(/append-only/i);
+
+      // Verify DB trigger guard_bill_version_snapshot prevents modifying version snapshot fields
+      await expect(
+        pool.query("UPDATE bill_versions SET template_snapshot = '{\"mutated\": true}'::jsonb WHERE id = $1", [v1Id])
+      ).rejects.toThrow(/immutable/i);
+    });
+
+    it('rejects version creation with duplicate sequence numbers (400)', async () => {
+      const res = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          items: [
+            { trip_id: tripId1, sequence_no: 1, description: 'Line 1', line_amount: 10000 },
+            { trip_id: tripId2, sequence_no: 1, description: 'Line 2 duplicate seq', line_amount: 10000 }
+          ]
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects version creation with an un-received POD or non-completed trip (422)', async () => {
+      // Create a pending trip
+      const pendingTripId = (
+        await pool.query(
+          "INSERT INTO trips (trip_number, party_id, trip_type, vehicle_relationship, market_vehicle_id, origin, destination, status, trip_date, created_by) VALUES ('TRP-PENDING', $1, 'MARKET', 'MARKET', (SELECT id FROM market_vehicles LIMIT 1), 'CityA', 'CityB', 'IN_TRANSIT', '2026-10-05', (SELECT id FROM users WHERE role='OWNER' LIMIT 1)) RETURNING id",
+          [partyId]
+        )
+      ).rows[0].id;
+
+      const res = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          items: [
+            { trip_id: pendingTripId, sequence_no: 1, description: 'Pending trip freight', line_amount: 10000 }
+          ]
+        });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('BUSINESS_RULE_VIOLATION');
+    });
+
+    it('rejects version creation with trip already billed in another active bill (422)', async () => {
+      // Generate a second bill for tripId3
+      const bill2Res = await request(app)
+        .post('/api/bills')
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          party_id: partyId,
+          financial_year_id: fyId,
+          numbering_series_id: numberingSeriesId,
+          billing_mode: 'INDIVIDUAL',
+          bill_date: '2026-10-06',
+          trip_ids: [tripId3],
+          template_snapshot: {}
+        });
+      expect(bill2Res.status).toBe(201);
+
+      // Now attempt to add tripId3 to billId
+      const res = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          items: [
+            { trip_id: tripId1, sequence_no: 1, description: 'Trip 1', line_amount: 20000 },
+            { trip_id: tripId3, sequence_no: 2, description: 'Trip 3 conflict', line_amount: 25000 }
+          ]
+        });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('BUSINESS_RULE_VIOLATION');
+      expect(res.body.error.message).toContain('already billed in active bill');
     });
 
     it('returns 404 for non-existent version', async () => {
@@ -391,36 +488,80 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
     });
   });
 
-  describe('7. PDF Generation and Retrieval', () => {
-    it('generates and streams valid bill PDF for owner, staff, and CA', async () => {
+  describe('7. PDF Generation, Version Isolation, and Multi-Page Document Streaming', () => {
+    it('streams Version 1 historical PDF matching Version 1 totals', async () => {
+      const res = await request(app).get(`/api/bills/${billId}/versions/1/pdf`).set('Authorization', 'Bearer ' + caToken);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toBe('application/pdf');
+      expect(res.headers['content-disposition']).toContain('Bill-SRL-INV-1-v1.pdf');
+
+      const bodyStr = res.body.toString('latin1');
+      expect(bodyStr.startsWith('%PDF-1.4')).toBe(true);
+      expect(bodyStr).toContain('Total Amount:   INR 35000.00');
+    });
+
+    it('streams current active Version 2 PDF matching corrected totals', async () => {
       const res = await request(app).get(`/api/bills/${billId}/pdf`).set('Authorization', 'Bearer ' + caToken);
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toBe('application/pdf');
-      expect(res.headers['content-disposition']).toContain('Bill-SRL-INV-1.pdf');
+      expect(res.headers['content-disposition']).toContain('Bill-SRL-INV-1-v2.pdf');
 
-      // Check PDF signature
-      const isPdfHeader = res.body.slice(0, 4).toString() === '%PDF';
-      expect(isPdfHeader).toBe(true);
+      const bodyStr = res.body.toString('latin1');
+      expect(bodyStr.startsWith('%PDF-1.4')).toBe(true);
+      expect(bodyStr).toContain('Total Amount:   INR 42000.00');
+    });
+
+    it('generates and streams a multi-page PDF document with continuation headers and page numbers', async () => {
+      // Create a version with 25 line items to force pagination (20 items on page 1, 5 on page 2)
+      const items25 = Array.from({ length: 25 }, (_, i) => ({
+        trip_id: null,
+        sequence_no: i + 1,
+        description: `Consolidated freight charge line ${i + 1}`,
+        line_amount: 1000
+      }));
+
+      const v3Res = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          template_snapshot: { layout: { theme: 'multi-page-test' } },
+          items: items25
+        });
+      expect(v3Res.status).toBe(201);
+      expect(v3Res.body.data.version_number).toBe(3);
+
+      const pdfRes = await request(app).get(`/api/bills/${billId}/pdf`).set('Authorization', 'Bearer ' + ownerToken);
+      expect(pdfRes.status).toBe(200);
+      expect(pdfRes.headers['content-type']).toBe('application/pdf');
+      expect(pdfRes.headers['content-disposition']).toContain('Bill-SRL-INV-1-v3.pdf');
+
+      const pdfStr = pdfRes.body.toString('latin1');
+      expect(pdfStr.startsWith('%PDF-1.4')).toBe(true);
+      expect(pdfStr).toContain('/Count 2'); // 2 pages in Pages object
+      expect(pdfStr).toContain('Page 1 of 2');
+      expect(pdfStr).toContain('Page 2 of 2');
+      expect(pdfStr).toContain('[Page 2 of 2]'); // Continuation header on page 2
+      expect(pdfStr).toContain('Total Amount:   INR 25000.00');
     });
   });
 
-  describe('8. Safe Cancellation and Allocation Protection', () => {
+  describe('8. Safe Cancellation, Allocation Underflow Protection, and Numbering Isolation', () => {
     let paymentId: string;
     let allocationId: string;
 
-    it('prevents cancellation when bill has active payment allocations (422)', async () => {
-      // Create payment and active allocation to the bill inside a single transaction so deferred constraint passes
+    it('rejects version correction if new total is less than active payment allocations (422)', async () => {
+      // Allocate 20,000 to the bill inside a transaction
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         const pRes = await client.query(
-          "INSERT INTO payments (payment_id, payment_type, category, party_id, payment_date, amount, payment_mode, payment_status, created_by) VALUES ('PAY-BILL-01', 'INCOMING', 'MARKET_PARTY_PAYMENT', $1, '2026-10-06', 10000, 'BANK_TRANSFER', 'ACTIVE', (SELECT id FROM users WHERE role='OWNER' LIMIT 1)) RETURNING id",
+          "INSERT INTO payments (payment_id, payment_type, category, party_id, payment_date, amount, payment_mode, payment_status, created_by) VALUES ('PAY-ALLOC-CHECK', 'INCOMING', 'MARKET_PARTY_PAYMENT', $1, '2026-10-07', 20000, 'BANK_TRANSFER', 'ACTIVE', (SELECT id FROM users WHERE role='OWNER' LIMIT 1)) RETURNING id",
           [partyId]
         );
         paymentId = pRes.rows[0].id;
 
         const aRes = await client.query(
-          "INSERT INTO payment_allocations (payment_id, bill_id, allocation_type, allocation_amount, allocation_status, created_by) VALUES ($1, $2, 'BILL', 10000, 'ACTIVE', (SELECT id FROM users WHERE role='OWNER' LIMIT 1)) RETURNING id",
+          "INSERT INTO payment_allocations (payment_id, bill_id, allocation_type, allocation_amount, allocation_status, created_by) VALUES ($1, $2, 'BILL', 20000, 'ACTIVE', (SELECT id FROM users WHERE role='OWNER' LIMIT 1)) RETURNING id",
           [paymentId, billId]
         );
         allocationId = aRes.rows[0].id;
@@ -429,6 +570,22 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
         client.release();
       }
 
+      // Now attempt correction to 15,000 (less than active allocations of 20,000)
+      const underflowAttempt = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          items: [
+            { sequence_no: 1, description: 'Reduced line amount below allocation', line_amount: 15000 }
+          ]
+        });
+
+      expect(underflowAttempt.status).toBe(422);
+      expect(underflowAttempt.body.error.code).toBe('BILLING_VIOLATION');
+      expect(underflowAttempt.body.error.message).toContain('cannot be less than active payment allocations');
+    });
+
+    it('prevents cancellation when bill has active payment allocations (422)', async () => {
       const cancelAttempt = await request(app)
         .post(`/api/bills/${billId}/cancel`)
         .set('Authorization', 'Bearer ' + ownerToken)
@@ -436,6 +593,16 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
 
       expect(cancelAttempt.status).toBe(422);
       expect(cancelAttempt.body.error.code).toBe('BILL_HAS_ACTIVE_ALLOCATIONS');
+    });
+
+    it('rejects cancellation when reason is missing or less than 5 characters (400)', async () => {
+      const cancelAttempt = await request(app)
+        .post(`/api/bills/${billId}/cancel`)
+        .set('Authorization', 'Bearer ' + ownerToken)
+        .send({ cancel_reason: 'no' });
+
+      expect(cancelAttempt.status).toBe(400);
+      expect(cancelAttempt.body.error.code).toBe('VALIDATION_ERROR');
     });
 
     it('allows cancellation once payment allocations are reversed, releasing trips back to unbilled', async () => {
@@ -465,7 +632,40 @@ describe('Billing Backend Contract Completion (Phase 3N)', () => {
       const eligibleTripNumbers = eligibleRes.body.data.map((t: any) => t.trip_number);
       expect(eligibleTripNumbers).toContain('TRP-001');
       expect(eligibleTripNumbers).toContain('TRP-002');
-      expect(eligibleTripNumbers).toContain('TRP-003');
+    });
+
+    it('rejects re-cancelling or adding versions to an already cancelled bill (422)', async () => {
+      const reCancel = await request(app)
+        .post(`/api/bills/${billId}/cancel`)
+        .set('Authorization', 'Bearer ' + ownerToken)
+        .send({ cancel_reason: 'Attempting re-cancel' });
+      expect(reCancel.status).toBe(422);
+
+      const addVersion = await request(app)
+        .post(`/api/bills/${billId}/versions`)
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({ template_snapshot: {} });
+      expect(addVersion.status).toBe(422);
+    });
+
+    it('ensures cancelled bill numbers are never reused and subsequent bill generation gets next number in series', async () => {
+      // Bill 1 was SRL-INV-1, Bill 2 was SRL-INV-2 (generated earlier in trip3 test).
+      // Now generating a new bill for trip 1 must generate SRL-INV-3!
+      const newBillRes = await request(app)
+        .post('/api/bills')
+        .set('Authorization', 'Bearer ' + staffToken)
+        .send({
+          party_id: partyId,
+          financial_year_id: fyId,
+          numbering_series_id: numberingSeriesId,
+          billing_mode: 'INDIVIDUAL',
+          bill_date: '2026-10-08',
+          trip_ids: [tripId1],
+          template_snapshot: {}
+        });
+
+      expect(newBillRes.status).toBe(201);
+      expect(newBillRes.body.data.bill.bill_number).toBe('SRL-INV-3');
     });
   });
 });

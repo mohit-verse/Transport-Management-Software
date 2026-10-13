@@ -95,9 +95,32 @@ export const getBillVersion = async (req: Request, res: Response, next: NextFunc
 
 export const getBillPdf = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = await service.getBillPdf(req.params.id as string);
+    const versionQuery = req.query.version ? parseInt(req.query.version as string, 10) : undefined;
+    const result = await service.getBillPdf(req.params.id as string, versionQuery);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Bill-${result.billNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="Bill-${result.billNumber}-v${result.versionNumber}.pdf"`);
+    result.stream.pipe(res);
+    result.stream.on('error', (err) => {
+      if (!res.headersSent) {
+        next(err);
+      } else {
+        res.end();
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getBillVersionPdf = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const versionNumber = parseInt(req.params.versionNumber as string, 10);
+    if (isNaN(versionNumber)) {
+      throw new AppError('VALIDATION_ERROR', 'versionNumber must be an integer', 400);
+    }
+    const result = await service.getBillPdf(req.params.id as string, versionNumber);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Bill-${result.billNumber}-v${result.versionNumber}.pdf"`);
     result.stream.pipe(res);
     result.stream.on('error', (err) => {
       if (!res.headersSent) {

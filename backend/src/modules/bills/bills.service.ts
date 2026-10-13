@@ -456,6 +456,11 @@ export const cancelBill = async (id: string, cancelReason: string, userId: strin
       [id, cancelReason, userId]
     );
 
+    await client.query(
+      "UPDATE bill_versions SET version_status = 'CANCELLED' WHERE bill_id = $1 AND version_status = 'ACTIVE'",
+      [id]
+    );
+
     await createAudit({ entityType: 'BILL', entityId: id, action: 'CANCEL', newState: updated[0], userId }, client);
     return updated[0];
   });
@@ -467,8 +472,11 @@ export const createVersion = async (id: string, data: any, userId: string) => {
     if (rows.length === 0) throw new AppError('NOT_FOUND', 'Bill not found', 404);
     const bill = rows[0];
 
-    if (bill.bill_status === 'CANCELLED' || bill.bill_status === 'PAID') {
-      throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot create versions for cancelled or paid bills.', 422);
+    if (bill.bill_status === 'CANCELLED') {
+      throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot create versions for cancelled bills.', 422);
+    }
+    if (bill.bill_status === 'PAID') {
+      throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot create versions for already paid bills.', 422);
     }
 
     const { rows: versions } = await client.query(
@@ -477,75 +485,169 @@ export const createVersion = async (id: string, data: any, userId: string) => {
     );
     const nextVersion = (versions[0]?.version_number || 0) + 1;
 
-    await client.query("UPDATE bill_versions SET version_status = 'SUPERSEDED' WHERE bill_id = $1", [id]);
-
     let snapshot = data.template_snapshot || {};
     if (!snapshot.layout) snapshot.layout = {};
     if (!snapshot.components) snapshot.components = [];
     if (!snapshot.assets) snapshot.assets = [];
     if (!snapshot.dynamic_field_definitions) snapshot.dynamic_field_definitions = [];
 
+    // Prepare items
+    let finalItems: any[] = [];
+    let lineSum = new Decimal(0);
+
+    if (data.items && Array.isArray(data.items)) {
+      if (data.items.length === 0) {
+        throw new AppError('VALIDATION_ERROR', 'A bill must have at least one line item.', 400);
+      }
+
+      if (bill.billing_mode === 'INDIVIDUAL') {
+        const distinctTrips = new Set(data.items.map((it: any) => it.trip_id).filter(Boolean));
+        if (distinctTrips.size > 1) {
+          throw new AppError('BUSINESS_RULE_VIOLATION', 'INDIVIDUAL billing mode only supports one trip per bill.', 422);
+        }
+      }
+
+      // Check active payment allocation sum against new total
+      const { rows: allocCheck } = await client.query(
+        "SELECT COALESCE(SUM(allocation_amount), 0) AS active_alloc_sum FROM payment_allocations WHERE bill_id = $1 AND allocation_status = 'ACTIVE'",
+        [id]
+      );
+      const activeAllocSum = new Decimal(allocCheck[0]?.active_alloc_sum || 0);
+
+      const seqSet = new Set<number>();
+
+      for (const item of data.items) {
+        if (!item.sequence_no || item.sequence_no <= 0) {
+          throw new AppError('VALIDATION_ERROR', 'Sequence number must be a positive integer.', 400);
+        }
+        if (seqSet.has(item.sequence_no)) {
+          throw new AppError('VALIDATION_ERROR', `Duplicate sequence number ${item.sequence_no}`, 400);
+        }
+        seqSet.add(item.sequence_no);
+
+        const amt = new Decimal(item.line_amount ?? 0);
+        if (amt.lessThan(0)) {
+          throw new AppError('VALIDATION_ERROR', 'Line amount cannot be negative.', 400);
+        }
+        lineSum = lineSum.plus(amt);
+
+        if (item.trip_id) {
+          const { rows: tripRows } = await client.query(
+            `SELECT t.id, t.trip_number, t.status, t.party_id, p.pod_received_at, p.pod_status
+             FROM trips t
+             LEFT JOIN trip_pods p ON t.id = p.trip_id
+             WHERE t.id = $1`,
+            [item.trip_id]
+          );
+          if (tripRows.length === 0 || tripRows[0].party_id !== bill.party_id) {
+            throw new AppError('BUSINESS_RULE_VIOLATION', 'Trip not found or does not belong to bill party.', 422);
+          }
+          const trip = tripRows[0];
+          if (trip.status !== 'COMPLETED') {
+            throw new AppError('BUSINESS_RULE_VIOLATION', `Trip ${trip.trip_number} is not in COMPLETED status.`, 422);
+          }
+          const podIsReceived = trip.pod_received_at !== null || ['RECEIVED', 'SENT', 'DISPATCHED'].includes(trip.pod_status);
+          if (!podIsReceived) {
+            throw new AppError('BUSINESS_RULE_VIOLATION', `Trip ${trip.trip_number} does not have a received POD.`, 422);
+          }
+
+          // Ensure trip is not linked to any OTHER active bill
+          const { rows: otherBills } = await client.query(
+            `SELECT b.bill_number FROM bill_items bi 
+             JOIN bills b ON bi.bill_id = b.id 
+             WHERE bi.trip_id = $1 AND b.id != $2 AND b.bill_status != 'CANCELLED'`,
+            [item.trip_id, id]
+          );
+          if (otherBills.length > 0) {
+            throw new AppError(
+              'BUSINESS_RULE_VIOLATION',
+              `Trip ${trip.trip_number} is already billed in active bill ${otherBills[0].bill_number}.`,
+              422
+            );
+          }
+        }
+
+        finalItems.push({
+          trip_id: item.trip_id || null,
+          sequence_no: item.sequence_no,
+          description: item.description,
+          quantity: item.quantity ?? null,
+          unit_price: item.unit_price ?? null,
+          line_amount: amt.toNumber()
+        });
+      }
+
+      if (lineSum.lessThan(activeAllocSum)) {
+        throw new AppError(
+          'BILLING_VIOLATION',
+          `Corrected bill total (${lineSum.toFixed(2)}) cannot be less than active payment allocations (${activeAllocSum.toFixed(2)}).`,
+          422
+        );
+      }
+    } else {
+      const { rows: items } = await client.query(
+        'SELECT trip_id, sequence_no, description, quantity, unit_price, line_amount FROM bill_items WHERE bill_id = $1 ORDER BY sequence_no ASC',
+        [id]
+      );
+      finalItems = items;
+      lineSum = items.reduce((acc: Decimal, it: any) => acc.plus(it.line_amount || 0), new Decimal(0));
+    }
+
+    // Supersede previous active version(s)
+    await client.query("UPDATE bill_versions SET version_status = 'SUPERSEDED' WHERE bill_id = $1 AND version_status = 'ACTIVE'", [id]);
+
+    const totalsSnapshot = data.totals_snapshot || {
+      total_amount: lineSum.toNumber(),
+      line_count: finalItems.length
+    };
+    const headerSnapshot = data.header_snapshot || {
+      bill_number: bill.bill_number,
+      bill_date: bill.bill_date,
+      billing_mode: bill.billing_mode
+    };
+
     const vQuery =
-      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, $6, $7) RETURNING *";
+      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, header_snapshot, totals_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, $6, $7, $8, $9) RETURNING *";
     const vRes = await client.query(vQuery, [
       bill.id,
       nextVersion,
       'Version ' + nextVersion,
       data.template_id || null,
       snapshot,
+      headerSnapshot,
+      totalsSnapshot,
       data.resolved_dynamic_fields || {},
       userId
     ]);
     const version = vRes.rows[0];
 
-    if (data.items && Array.isArray(data.items) && data.items.length > 0) {
-      // Synchronize bill_items and bill_version_items to match exactly
+    // If items were modified, synchronize bill_items
+    if (data.items && Array.isArray(data.items)) {
       await client.query('DELETE FROM bill_items WHERE bill_id = $1', [id]);
-      for (const item of data.items) {
+      for (const item of finalItems) {
         await client.query(
           'INSERT INTO bill_items (bill_id, trip_id, sequence_no, description, quantity, unit_price, line_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-          [
-            bill.id,
-            item.trip_id || null,
-            item.sequence_no,
-            item.description,
-            item.quantity ?? null,
-            item.unit_price ?? null,
-            item.line_amount
-          ]
-        );
-        await client.query(
-          'INSERT INTO bill_version_items (bill_version_id, trip_id, sequence_no, description, quantity, unit_price, line_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-          [
-            version.id,
-            item.trip_id || null,
-            item.sequence_no,
-            item.description,
-            item.quantity ?? null,
-            item.unit_price ?? null,
-            item.line_amount
-          ]
-        );
-      }
-    } else {
-      const { rows: items } = await client.query('SELECT * FROM bill_items WHERE bill_id = $1', [id]);
-      for (const item of items) {
-        await client.query(
-          'INSERT INTO bill_version_items (bill_version_id, trip_id, sequence_no, description, quantity, unit_price, line_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-          [
-            version.id,
-            item.trip_id,
-            item.sequence_no,
-            item.description,
-            item.quantity ?? null,
-            item.unit_price ?? null,
-            item.line_amount
-          ]
+          [bill.id, item.trip_id, item.sequence_no, item.description, item.quantity, item.unit_price, item.line_amount]
         );
       }
     }
 
+    // Insert bill_version_items for the new version
+    for (const item of finalItems) {
+      await client.query(
+        'INSERT INTO bill_version_items (bill_version_id, trip_id, sequence_no, description, quantity, unit_price, line_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [version.id, item.trip_id, item.sequence_no, item.description, item.quantity, item.unit_price, item.line_amount]
+      );
+    }
+
     await createAudit({ entityType: 'BILL_VERSION', entityId: version.id, action: 'CREATE', newState: version, userId }, client);
+
+    const { rows: updatedBills } = await client.query('SELECT * FROM bills WHERE id = $1', [id]);
+    await createAudit(
+      { entityType: 'BILL', entityId: id, action: 'CORRECTION', previousState: bill, newState: updatedBills[0], userId },
+      client
+    );
+
     return version;
   });
 };
@@ -659,14 +761,48 @@ export const getBillVersion = async (billId: string, versionNumber: number) => {
   };
 };
 
-export const getBillPdf = async (id: string) => {
+export const getBillPdf = async (id: string, versionNumber?: number) => {
   const bill = await getBill(id);
-  const currentVersionNumber = bill.current_version || 1;
-  const storageKey = `bills/${bill.id}/v${currentVersionNumber}.pdf`;
+
+  let targetVersion: any;
+  if (versionNumber !== undefined && versionNumber !== null && !isNaN(Number(versionNumber))) {
+    const v = bill.versions.find((ver: any) => Number(ver.version_number) === Number(versionNumber));
+    if (!v) {
+      throw new AppError('NOT_FOUND', `Bill version ${versionNumber} not found`, 404);
+    }
+    targetVersion = v;
+  } else {
+    targetVersion = bill.versions.find((ver: any) => ver.version_status === 'ACTIVE') || bill.versions[0];
+  }
+
+  const vNum = targetVersion ? targetVersion.version_number : (bill.current_version || 1);
+  const storageKey = `bills/${bill.id}/v${vNum}.pdf`;
 
   const fileExists = await storageService.exists(storageKey);
   if (!fileExists) {
-    const pdfBuffer = generateBillPdfBuffer(bill);
+    // Collect version items directly from bill_version_items of the target version
+    const versionItems = (targetVersion && Array.isArray(targetVersion.items) && targetVersion.items.length > 0)
+      ? targetVersion.items
+      : bill.items;
+
+    const versionTotal = versionItems.reduce(
+      (sum: number, it: any) => sum + Number(it.line_amount || 0),
+      0
+    );
+
+    const pdfData = {
+      ...bill,
+      version_number: vNum,
+      version_label: targetVersion?.version_label || `Version ${vNum}`,
+      version_status: targetVersion?.version_status || bill.bill_status,
+      template_snapshot: targetVersion?.template_snapshot || {},
+      items: versionItems,
+      total_amount: versionTotal,
+      paid_amount: bill.paid_amount,
+      balance_amount: Math.max(0, versionTotal - Number(bill.paid_amount || 0))
+    };
+
+    const pdfBuffer = generateBillPdfBuffer(pdfData);
     const stream = Readable.from(pdfBuffer);
     await storageService.upload(storageKey, stream);
   }
@@ -674,6 +810,7 @@ export const getBillPdf = async (id: string) => {
   return {
     storageKey,
     billNumber: bill.bill_number,
+    versionNumber: vNum,
     stream: storageService.getStream(storageKey)
   };
 };

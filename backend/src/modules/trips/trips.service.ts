@@ -45,7 +45,7 @@ export const getTripById = async (id: string) => {
     SELECT t.*, 
       p.name as party_name,
       mv.vehicle_number as market_vehicle_number,
-      vo.owner_name as vehicle_owner_name,
+      vo.name as vehicle_owner_name,
       ofv.vehicle_number as own_fleet_vehicle_number
     FROM trips t
     LEFT JOIN parties p ON t.party_id = p.id
@@ -158,7 +158,7 @@ export const updateCoreTrip = async (id: string, data: any, userId: string) => {
         try {
           await client.query('DELETE FROM trip_destinations WHERE id = $1', [destId]);
         } catch (error: any) {
-          if (error.code === '23503') {
+          if (error.code === '23503' || error.code === 'P0001' || (error.message && error.message.includes('trip_destinations'))) {
             throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot remove destination with linked financial records', 400);
           }
           throw error;

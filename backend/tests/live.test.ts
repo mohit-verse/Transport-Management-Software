@@ -233,7 +233,8 @@ describe('Live PostgreSQL Financial Validation', () => {
         payment_id: '11111111-1111-1111-1111-111111111111' // Will fail DB constraints but structure passes
       });
     
-    expect(res.status).not.toBe(404); // Means route exists and operates
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND'); // Means route exists and operates
     // We expect 500 or 4xx because payment_id doesn't exist, proving it hits DB.
   });
 

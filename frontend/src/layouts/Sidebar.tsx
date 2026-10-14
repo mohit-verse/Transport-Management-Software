@@ -33,7 +33,7 @@ const navigation: NavItem[] = [
   { name: 'Payments', href: '/payments', icon: CircleDollarSign, roles: ['OWNER', 'STAFF', 'CA'] },
   { name: 'Bills', href: '/bills', icon: Receipt, roles: ['OWNER', 'STAFF', 'CA'] },
   { name: 'Reports', href: '/reports', icon: FileText, roles: ['OWNER', 'CA'] },
-  { name: 'Documents', href: '/documents', icon: Files, roles: ['OWNER', 'STAFF'] },
+  { name: 'Documents', href: '/documents', icon: Files, roles: ['OWNER', 'STAFF', 'CA'] },
   { name: 'Billing Settings', href: '/settings/billing', icon: Sliders, roles: ['OWNER', 'STAFF', 'CA'] },
   { name: 'Settings', href: '/settings/system', icon: Settings, roles: ['OWNER'] },
 ];

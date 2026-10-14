@@ -238,9 +238,95 @@ export const uploadOwnFleetDocument = async (id: string, formData: FormData): Pr
   return response.data;
 };
 
-export const getDocuments = async (params?: { entity_type?: string; entity_id?: string }): Promise<{ success: boolean; data: any[] }> => {
+export interface DocumentItem {
+  id: string;
+  document_type: string;
+  original_name: string;
+  mime_type: string;
+  file_size_bytes: number;
+  expiry_date?: string | null;
+  uploaded_at: string;
+  uploaded_by: string;
+  uploaded_by_name?: string | null;
+  entity_type?: 'TRIP' | 'OWN_FLEET_VEHICLE' | 'PAYMENT' | 'BILL' | 'PARTY' | 'VEHICLE_OWNER' | 'MARKET_VEHICLE' | string | null;
+  entity_id?: string | null;
+  entity_reference?: string | null;
+  expiry_status?: 'EXPIRED' | 'EXPIRING_SOON' | 'ACTIVE' | null;
+  days_to_expiry?: number | null;
+}
+
+export interface DocumentListParams {
+  entity_type?: string;
+  entity_id?: string;
+  document_type?: string;
+  expiry_status?: 'ALL' | 'EXPIRED' | 'EXPIRING_SOON' | 'ACTIVE';
+  search?: string;
+  q?: string;
+}
+
+export interface UploadDocumentPayload {
+  document_type: string;
+  original_name: string;
+  mime_type: string;
+  file_size_bytes: number;
+  expiry_date?: string | null;
+  entity_type: 'TRIP' | 'OWN_FLEET_VEHICLE' | 'PAYMENT' | 'BILL' | 'PARTY' | 'VEHICLE_OWNER' | 'MARKET_VEHICLE';
+  entity_id: string;
+}
+
+export interface ReplaceDocumentPayload {
+  original_name: string;
+  mime_type: string;
+  file_size_bytes: number;
+  expiry_date?: string | null;
+  reason: string;
+}
+
+export const getDocuments = async (params?: DocumentListParams): Promise<{ success: boolean; data: DocumentItem[] }> => {
   const response = await api.get('/api/documents', { params });
   return response.data;
+};
+
+export const getDocument = async (id: string): Promise<{ success: boolean; data: DocumentItem }> => {
+  const response = await api.get(`/api/documents/${id}`);
+  return response.data;
+};
+
+export const uploadDocument = async (payload: UploadDocumentPayload): Promise<{ success: boolean; data: DocumentItem }> => {
+  const response = await api.post('/api/documents', payload);
+  return response.data;
+};
+
+export const replaceDocument = async (id: string, payload: ReplaceDocumentPayload): Promise<{ success: boolean; data: DocumentItem }> => {
+  const response = await api.post(`/api/documents/${id}/replace`, payload);
+  return response.data;
+};
+
+export const deleteDocument = async (id: string, reason: string): Promise<{ success: boolean; message?: string; data?: any }> => {
+  const response = await api.delete(`/api/documents/${id}`, { data: { reason } });
+  return response.data;
+};
+
+export const downloadDocumentFile = async (id: string, filename: string): Promise<void> => {
+  const response = await api.get(`/api/documents/${id}/file`, { responseType: 'blob' });
+  const contentType = (response.headers['content-type'] as string) || 'application/octet-stream';
+  const blob = new Blob([response.data], { type: contentType });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.parentNode?.removeChild(link);
+  setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+};
+
+export const previewDocumentFile = async (id: string): Promise<{ blobUrl: string; mimeType: string }> => {
+  const response = await api.get(`/api/documents/${id}/file`, { responseType: 'blob' });
+  const mimeType = (response.headers['content-type'] as string) || 'application/octet-stream';
+  const blob = new Blob([response.data], { type: mimeType });
+  const blobUrl = window.URL.createObjectURL(blob);
+  return { blobUrl, mimeType };
 };
 
 // ==========================================

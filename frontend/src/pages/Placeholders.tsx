@@ -1,26 +1,7 @@
 
 import { PageContainer } from '../components/PageContainer';
-import { Button } from '../components/Button';
-import { useAuthStore } from '../store/authStore';
-import { useNavigate } from 'react-router-dom';
 
-export const LoginPage = () => {
-  const setAuth = useAuthStore((state) => state.setAuth);
-  const navigate = useNavigate();
-
-  const handleLogin = (role: 'OWNER' | 'STAFF' | 'CA') => {
-    setAuth({ id: '1', name: `Test ${role}`, email: 'test@example.com', role }, 'fake-jwt-token');
-    navigate('/dashboard');
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Button onClick={() => handleLogin('OWNER')}>Login as OWNER</Button>
-      <Button onClick={() => handleLogin('STAFF')} variant="secondary">Login as STAFF</Button>
-      <Button onClick={() => handleLogin('CA')} variant="ghost">Login as CA</Button>
-    </div>
-  );
-};
+export { LoginPage } from './Login';
 
 
 

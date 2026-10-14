@@ -31,6 +31,42 @@ api.interceptors.response.use(
 
 export default api;
 
+export interface LoginPayload {
+  mobile_number: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  success: boolean;
+  data: {
+    token: string;
+  };
+}
+
+export interface MeResponse {
+  success: boolean;
+  data: {
+    user: {
+      id: string;
+      name: string;
+      mobile_number: string;
+      role: 'OWNER' | 'STAFF' | 'CA';
+      is_active: boolean;
+      last_login_at?: string;
+    };
+  };
+}
+
+export const login = async (payload: LoginPayload): Promise<LoginResponse> => {
+  const response = await api.post('/api/auth/login', payload);
+  return response.data;
+};
+
+export const getMe = async (): Promise<MeResponse> => {
+  const response = await api.get('/api/auth/me');
+  return response.data;
+};
+
 export interface VehicleOwner {
   id: string;
   name: string;
@@ -231,10 +267,17 @@ export const getOwnFleetExpenses = async (id: string): Promise<{ success: boolea
   return response.data;
 };
 
-export const uploadOwnFleetDocument = async (id: string, formData: FormData): Promise<{ success: boolean; data: any }> => {
-  const response = await api.post(`/api/own-fleet/${id}/documents`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+export interface UploadOwnFleetDocPayload {
+  vehicle_id: string;
+  document_type: string;
+  expiry_date?: string | null;
+  file_name?: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+}
+
+export const uploadOwnFleetDocument = async (payload: UploadOwnFleetDocPayload): Promise<{ success: boolean; data: any }> => {
+  const response = await api.post('/api/documents/own-fleet', payload);
   return response.data;
 };
 

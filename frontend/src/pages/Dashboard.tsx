@@ -211,7 +211,9 @@ export const DashboardPage: React.FC = () => {
                       {data.recentTrips.map((trip) => (
                         <tr key={trip.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium text-gray-900">
-                            {trip.trip_number}
+                            <Link to={`/trips/${trip.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {trip.trip_number}
+                            </Link>
                           </td>
                           <td className="px-4 py-3 text-gray-500">
                             {trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}
@@ -261,7 +263,9 @@ export const DashboardPage: React.FC = () => {
                             {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : 'N/A'}
                           </td>
                           <td className="px-4 py-3 text-gray-900">
-                            {payment.payment_type}
+                            <Link to={`/payments/${payment.id}`} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                              {payment.payment_type}
+                            </Link>
                           </td>
                           <td className="px-4 py-3">
                             <AmountDisplay amount={Number(payment.amount)} />

@@ -6,7 +6,8 @@ export type UserRole = 'OWNER' | 'STAFF' | 'CA';
 export interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string;
+  mobile_number?: string;
   role: UserRole;
 }
 

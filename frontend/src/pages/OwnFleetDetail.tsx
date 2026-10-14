@@ -66,7 +66,8 @@ export default function OwnFleetDetail() {
   const [docExpiry, setDocExpiry] = useState('');
   
   const uploadDocMutation = useMutation({
-    mutationFn: (formData: FormData) => uploadOwnFleetDocument(id!, formData),
+    mutationFn: (payload: { vehicle_id: string; document_type: string; expiry_date?: string | null; file_name?: string; mime_type?: string; file_size_bytes?: number }) =>
+      uploadOwnFleetDocument(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents', 'own_fleet', id] });
       setDocFile(null);
@@ -77,13 +78,16 @@ export default function OwnFleetDetail() {
 
   const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!docFile) return;
-    const formData = new FormData();
-    formData.append('file', docFile);
-    formData.append('document_type', docType);
-    if (docExpiry) formData.append('expiry_date', docExpiry);
+    if (!docFile || !docType) return;
     
-    uploadDocMutation.mutate(formData);
+    uploadDocMutation.mutate({
+      vehicle_id: id!,
+      document_type: docType,
+      expiry_date: docExpiry || null,
+      file_name: docFile.name,
+      mime_type: docFile.type || 'application/pdf',
+      file_size_bytes: docFile.size,
+    });
   };
 
   if (vehicleLoading || tripsLoading || expensesLoading || docsLoading) {

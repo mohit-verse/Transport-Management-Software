@@ -22,12 +22,11 @@ const TripDetails = () => {
 
   const uploadPodMutation = useMutation({
     mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('trip_id', id!);
-      
-      const res = await api.post('/api/documents/pod', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const res = await api.post('/api/documents/pod', {
+        trip_id: id,
+        file_name: file.name,
+        mime_type: file.type || 'application/pdf',
+        file_size_bytes: file.size,
       });
       return res.data;
     },

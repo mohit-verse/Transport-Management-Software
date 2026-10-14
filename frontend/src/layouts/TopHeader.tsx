@@ -3,7 +3,11 @@ import { Menu, Search, Bell } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { GlobalSearchModal } from '../components/GlobalSearchModal';
 
-export const TopHeader: React.FC = () => {
+interface TopHeaderProps {
+  onToggleMobileMenu?: () => void;
+}
+
+export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleMobileMenu }) => {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -13,6 +17,7 @@ export const TopHeader: React.FC = () => {
       <div className="relative z-10 flex-shrink-0 flex h-16 bg-white shadow">
         <button
           type="button"
+          onClick={onToggleMobileMenu}
           className="px-4 border-r border-gray-200 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 md:hidden"
         >
           <span className="sr-only">Open sidebar</span>

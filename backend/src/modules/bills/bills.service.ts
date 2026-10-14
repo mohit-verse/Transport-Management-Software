@@ -6,6 +6,8 @@ import Decimal from 'decimal.js';
 import { storageService } from '../../services/storage.service';
 import { generateBillPdfBuffer } from './bill-pdf.generator';
 import { Readable } from 'stream';
+import { getTemplateById } from '../bill-templates/bill-templates.service';
+import { resolveDynamicFields } from '../bill-templates/dynamic-fields.resolver';
 
 export const generateBill = async (data: any, userId: string) => {
   return withTransaction(async (client) => {
@@ -63,10 +65,10 @@ export const generateBill = async (data: any, userId: string) => {
     }
 
     const seqQuery =
-      'UPDATE bill_numbering_series SET current_number = current_number + 1, updated_at = now() WHERE id = $1 AND is_active = true RETURNING prefix, current_number';
-    const seqRes = await client.query(seqQuery, [data.numbering_series_id]);
+      'UPDATE bill_numbering_series SET current_number = current_number + 1, updated_at = now() WHERE id = $1 AND party_id = $2 AND financial_year_id = $3 AND is_active = true RETURNING prefix, current_number';
+    const seqRes = await client.query(seqQuery, [data.numbering_series_id, data.party_id, data.financial_year_id]);
     if (seqRes.rows.length === 0) {
-      throw new AppError('NOT_FOUND', 'Numbering series not found or inactive.', 404);
+      throw new AppError('NOT_FOUND', 'Numbering series not found, inactive, or does not match party and financial year.', 404);
     }
     const { prefix, current_number } = seqRes.rows[0];
     const billNumber = prefix + current_number;
@@ -94,24 +96,54 @@ export const generateBill = async (data: any, userId: string) => {
       "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, 1, 'Version 1', 'ACTIVE', $2, $3, $4, $5) RETURNING *";
 
     let templateIdToUse = data.template_id || null;
-    if (!templateIdToUse) {
-      const pbcRes = await client.query('SELECT default_template_id FROM party_billing_configs WHERE party_id = $1', [data.party_id]);
-      if (pbcRes.rows.length > 0 && pbcRes.rows[0].default_template_id) {
-        templateIdToUse = pbcRes.rows[0].default_template_id;
+    const pbcRes = await client.query('SELECT billing_mode, default_template_id FROM party_billing_configs WHERE party_id = $1', [data.party_id]);
+    if (pbcRes.rows.length > 0) {
+      const pbc = pbcRes.rows[0];
+      if (pbc.billing_mode && data.billing_mode && pbc.billing_mode !== data.billing_mode) {
+        throw new AppError(
+          'BUSINESS_RULE_VIOLATION',
+          `Billing mode '${data.billing_mode}' does not match company configured billing mode '${pbc.billing_mode}'.`,
+          422
+        );
+      }
+      if (!templateIdToUse && pbc.default_template_id) {
+        templateIdToUse = pbc.default_template_id;
       }
     }
 
     let snapshot = data.template_snapshot || {};
+    if (templateIdToUse && (!snapshot.components || snapshot.components.length === 0)) {
+      try {
+        const tmpl = await getTemplateById(templateIdToUse, client);
+        if (tmpl) {
+          snapshot = {
+            layout: tmpl.layout_json || snapshot.layout || {},
+            components: tmpl.components || [],
+            assets: tmpl.assets || [],
+            dynamic_field_definitions: tmpl.dynamic_fields || []
+          };
+        }
+      } catch {
+        // Fallback to empty snapshot if template not found
+      }
+    }
+
     if (!snapshot.layout) snapshot.layout = {};
     if (!snapshot.components) snapshot.components = [];
     if (!snapshot.assets) snapshot.assets = [];
     if (!snapshot.dynamic_field_definitions) snapshot.dynamic_field_definitions = [];
 
+    let resolvedFields = data.resolved_dynamic_fields;
+    if (!resolvedFields || Object.keys(resolvedFields).length === 0) {
+      const partyRes = await client.query('SELECT * FROM parties WHERE id = $1', [data.party_id]);
+      resolvedFields = resolveDynamicFields(bill, partyRes.rows[0], tripsRes.rows, lineItems);
+    }
+
     const vRes = await client.query(vQuery, [
       bill.id,
       templateIdToUse,
       snapshot,
-      data.resolved_dynamic_fields || {},
+      resolvedFields || {},
       userId
     ]);
 
@@ -616,6 +648,16 @@ export const createVersion = async (id: string, data: any, userId: string) => {
       billing_mode: bill.billing_mode
     };
 
+    let resolvedFields = data.resolved_dynamic_fields;
+    if (!resolvedFields || Object.keys(resolvedFields).length === 0) {
+      const partyRes = await client.query('SELECT * FROM parties WHERE id = $1', [bill.party_id]);
+      const { rows: versionTrips } = await client.query(
+        'SELECT t.*, pf.receivable_amount FROM trips t LEFT JOIN trip_party_financials pf ON t.id = pf.trip_id WHERE t.id IN (SELECT trip_id FROM bill_items WHERE bill_id = $1 AND trip_id IS NOT NULL)',
+        [id]
+      );
+      resolvedFields = resolveDynamicFields(bill, partyRes.rows[0], versionTrips, finalItems);
+    }
+
     const vQuery =
       "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, header_snapshot, totals_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, $6, $7, $8, $9) RETURNING *";
     const vRes = await client.query(vQuery, [
@@ -626,7 +668,7 @@ export const createVersion = async (id: string, data: any, userId: string) => {
       snapshot,
       headerSnapshot,
       totalsSnapshot,
-      data.resolved_dynamic_fields || {},
+      resolvedFields || {},
       userId
     ]);
 

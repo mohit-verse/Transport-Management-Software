@@ -297,14 +297,15 @@ export const updateParty = async (id: string, data: any, userId: string) => {
 export const updateBillingConfig = async (id: string, configInput: any, userId: string) => {
   return withTransaction(async (client) => {
     const existing = await getPartyById(id, client);
+    const existingConfig = existing.billing_configuration || {};
 
     // Extract either from nested billing_configuration or direct properties
     const cfg = configInput?.billing_configuration || configInput || {};
-    const billing_mode = cfg.billing_mode || 'INDIVIDUAL';
-    const default_template_id = cfg.default_template_id || null;
-    const tds_treatment = cfg.tds_treatment || null;
-    const required_fields = cfg.required_fields || {};
-    const numbering_series_policy = cfg.numbering_series_policy || {};
+    const billing_mode = cfg.billing_mode !== undefined ? cfg.billing_mode : (existingConfig.billing_mode || 'INDIVIDUAL');
+    const default_template_id = cfg.default_template_id !== undefined ? cfg.default_template_id : (existingConfig.default_template_id || null);
+    const tds_treatment = cfg.tds_treatment !== undefined ? cfg.tds_treatment : (existingConfig.tds_treatment || null);
+    const required_fields = cfg.required_fields !== undefined ? cfg.required_fields : (existingConfig.required_fields || {});
+    const numbering_series_policy = cfg.numbering_series_policy !== undefined ? cfg.numbering_series_policy : (existingConfig.numbering_series_policy || {});
 
     // Validate default_template_id if provided
     if (default_template_id) {

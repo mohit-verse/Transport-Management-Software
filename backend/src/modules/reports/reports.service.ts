@@ -21,9 +21,10 @@ const buildWhereClause = (query: any, prefix: string = '') => {
     conditions.push(`${prefix}vehicle_owner_id = $${paramIdx++}`);
     values.push(query.vehicleOwnerId);
   }
-  // Financial year might need custom join depending on date, but for now we filter by date range if fy provided,
-  // or if payment table has financial year? The payment table doesn't have financial_year_id, it has payment_date.
-  // Assuming frontend passes fromDate/toDate for financial year, or we look it up.
+  if (query.financialYearId && !query.fromDate && !query.toDate) {
+    conditions.push(`${prefix}payment_date >= (SELECT start_date FROM financial_years WHERE id = $${paramIdx}) AND ${prefix}payment_date <= (SELECT end_date FROM financial_years WHERE id = $${paramIdx++})`);
+    values.push(query.financialYearId);
+  }
   return {
     where: conditions.length ? `AND ${conditions.join(' AND ')}` : '',
     values,
@@ -222,22 +223,45 @@ export const getTds = async (query: any) => {
   const page = query.page ? parseInt(query.page, 10) : 1;
   const offset = (page - 1) * limit;
 
+  const conditions = ["tf.tds_amount > 0", "t.status != 'CANCELLED'"];
+  const values: any[] = [];
+  let paramIdx = 1;
+
+  if (query.fromDate) {
+    conditions.push(`t.trip_date >= $${paramIdx++}`);
+    values.push(query.fromDate);
+  }
+  if (query.toDate) {
+    conditions.push(`t.trip_date <= $${paramIdx++}`);
+    values.push(query.toDate);
+  }
+  if (query.partyId) {
+    conditions.push(`t.party_id = $${paramIdx++}`);
+    values.push(query.partyId);
+  }
+  if (query.financialYearId && !query.fromDate && !query.toDate) {
+    conditions.push(`t.trip_date >= (SELECT start_date FROM financial_years WHERE id = $${paramIdx}) AND t.trip_date <= (SELECT end_date FROM financial_years WHERE id = $${paramIdx++})`);
+    values.push(query.financialYearId);
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
   const result = await pool.query(`
     SELECT t.trip_number, t.trip_date, p.name as party_name, tf.tds_amount
     FROM trips t
     JOIN trip_party_financials tf ON t.id = tf.trip_id
     JOIN parties p ON t.party_id = p.id
-    WHERE tf.tds_amount > 0 AND t.status != 'CANCELLED'
+    ${whereClause}
     ORDER BY t.trip_date DESC, t.created_at DESC
-    LIMIT $1 OFFSET $2
-  `, [limit, offset]);
+    LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+  `, [...values, limit, offset]);
   
   const countRes = await pool.query(`
-    SELECT COUNT(*) as count, SUM(tf.tds_amount) as total
+    SELECT COUNT(*) as count, COALESCE(SUM(tf.tds_amount), 0) as total
     FROM trips t
     JOIN trip_party_financials tf ON t.id = tf.trip_id
-    WHERE tf.tds_amount > 0 AND t.status != 'CANCELLED'
-  `);
+    ${whereClause}
+  `, values);
 
   return {
     items: result.rows,
@@ -251,22 +275,56 @@ export const getBillReconciliation = async (query: any) => {
   const page = query.page ? parseInt(query.page, 10) : 1;
   const offset = (page - 1) * limit;
 
-  // We want to list bills and their payments. The database already computes total_amount and balance_amount for bills.
+  const conditions = [];
+  const values: any[] = [];
+  let paramIdx = 1;
+
+  if (query.fromDate) {
+    conditions.push(`b.bill_date >= $${paramIdx++}`);
+    values.push(query.fromDate);
+  }
+  if (query.toDate) {
+    conditions.push(`b.bill_date <= $${paramIdx++}`);
+    values.push(query.toDate);
+  }
+  if (query.partyId) {
+    conditions.push(`b.party_id = $${paramIdx++}`);
+    values.push(query.partyId);
+  }
+  if (query.financialYearId) {
+    conditions.push(`b.financial_year_id = $${paramIdx++}`);
+    values.push(query.financialYearId);
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
   const queryStr = `
     SELECT b.id, b.bill_number, b.bill_status, b.bill_date, b.total_amount, b.balance_amount, p.name as party_name,
            (b.total_amount - b.balance_amount) as allocated_amount
     FROM bills b
     JOIN parties p ON b.party_id = p.id
-    ORDER BY b.created_at DESC
-    LIMIT $1 OFFSET $2
+    ${whereClause}
+    ORDER BY b.bill_date DESC, b.created_at DESC
+    LIMIT $${paramIdx++} OFFSET $${paramIdx++}
   `;
-  const result = await pool.query(queryStr, [limit, offset]);
+  const result = await pool.query(queryStr, [...values, limit, offset]);
 
-  const countRes = await pool.query(`SELECT COUNT(*) as count FROM bills`);
+  const countRes = await pool.query(`
+    SELECT COUNT(*) as count,
+           COALESCE(SUM(b.total_amount), 0) as total_billed,
+           COALESCE(SUM(b.total_amount - b.balance_amount), 0) as total_allocated,
+           COALESCE(SUM(b.balance_amount), 0) as total_outstanding
+    FROM bills b
+    ${whereClause}
+  `, values);
 
+  const row = countRes.rows[0];
   return {
     items: result.rows,
-    count: parseInt(countRes.rows[0].count, 10)
+    count: parseInt(row.count, 10),
+    totalBilled: parseFloat(row.total_billed || '0'),
+    totalAllocated: parseFloat(row.total_allocated || '0'),
+    totalOutstanding: parseFloat(row.total_outstanding || '0')
   };
 };
 

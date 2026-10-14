@@ -961,3 +961,177 @@ export const deactivateNumberingSeries = async (id: string): Promise<{ success: 
   return response.data;
 };
 
+// ==========================================
+// Financial Reports API
+// ==========================================
+
+export interface ReportQueryParams {
+  fromDate?: string;
+  toDate?: string;
+  financialYearId?: string;
+  partyId?: string;
+  vehicleOwnerId?: string;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+}
+
+export interface FinancialSummaryData {
+  totalIncoming: number;
+  totalOutgoing: number;
+  netPnl: number;
+}
+
+export interface PnlCategoryTotal {
+  category: string;
+  total: string | number;
+}
+
+export interface PnlReportData extends FinancialSummaryData {
+  incomingByCategory: PnlCategoryTotal[];
+  outgoingByCategory: PnlCategoryTotal[];
+}
+
+export interface IncomingReportItem {
+  id: string;
+  payment_id: string;
+  payment_type: 'INCOMING';
+  category: string;
+  payment_date: string;
+  amount: string | number;
+  payment_mode: 'UPI' | 'BANK_TRANSFER' | 'CASH';
+  party_id?: string;
+  party_name?: string;
+  other_business_category_id?: string;
+  other_category_name?: string;
+  reference_number?: string;
+  payment_status: 'ACTIVE' | 'REVERSED';
+  created_at: string;
+}
+
+export interface IncomingReportData {
+  items: IncomingReportItem[];
+  total: number;
+  count: number;
+}
+
+export interface OutgoingReportItem {
+  id: string;
+  payment_id: string;
+  payment_type: 'OUTGOING';
+  category: string;
+  payment_date: string;
+  amount: string | number;
+  payment_mode: 'UPI' | 'BANK_TRANSFER' | 'CASH';
+  vehicle_owner_id?: string;
+  vehicle_owner_name?: string;
+  other_business_category_id?: string;
+  other_category_name?: string;
+  reference_number?: string;
+  payment_status: 'ACTIVE' | 'REVERSED';
+  created_at: string;
+}
+
+export interface OutgoingReportData {
+  items: OutgoingReportItem[];
+  total: number;
+  count: number;
+}
+
+export interface PaymentModeReportItem {
+  payment_mode: 'UPI' | 'BANK_TRANSFER' | 'CASH' | string;
+  incoming_amount: string | number;
+  outgoing_amount: string | number;
+  payment_count: string | number;
+}
+
+export interface CreditsReportData {
+  creditGenerated: number;
+  creditUtilized: number;
+  remainingCredit: number;
+}
+
+export interface TdsReportItem {
+  trip_number: string;
+  trip_date: string;
+  party_name: string;
+  tds_amount: string | number;
+}
+
+export interface TdsReportData {
+  items: TdsReportItem[];
+  total: number;
+  count: number;
+}
+
+export interface BillReconciliationItem {
+  id: string;
+  bill_number: string;
+  bill_status: 'GENERATED' | 'SUBMITTED' | 'PAID' | 'CANCELLED';
+  bill_date: string;
+  party_name: string;
+  total_amount: string | number;
+  balance_amount: string | number;
+  allocated_amount: string | number;
+}
+
+export interface BillReconciliationData {
+  items: BillReconciliationItem[];
+  count: number;
+  totalBilled?: number;
+  totalAllocated?: number;
+  totalOutstanding?: number;
+}
+
+export interface FinancialYearReportData {
+  financialYear: FinancialYear;
+  summary: FinancialSummaryData;
+  pnl: PnlReportData;
+}
+
+export const getFinancialSummary = async (params?: ReportQueryParams): Promise<{ success: boolean; data: FinancialSummaryData }> => {
+  const response = await api.get('/api/reports/financial-summary', { params });
+  return response.data;
+};
+
+export const getPnlReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: PnlReportData }> => {
+  const response = await api.get('/api/reports/pnl', { params });
+  return response.data;
+};
+
+export const getIncomingReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: IncomingReportData }> => {
+  const response = await api.get('/api/reports/incoming', { params });
+  return response.data;
+};
+
+export const getOutgoingReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: OutgoingReportData }> => {
+  const response = await api.get('/api/reports/outgoing', { params });
+  return response.data;
+};
+
+export const getPaymentModesReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: PaymentModeReportItem[] }> => {
+  const response = await api.get('/api/reports/payment-modes', { params });
+  return response.data;
+};
+
+export const getCreditsReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: CreditsReportData }> => {
+  const response = await api.get('/api/reports/credits', { params });
+  return response.data;
+};
+
+export const getTdsReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: TdsReportData }> => {
+  const response = await api.get('/api/reports/tds', { params });
+  return response.data;
+};
+
+export const getBillReconciliationReport = async (params?: ReportQueryParams): Promise<{ success: boolean; data: BillReconciliationData }> => {
+  const response = await api.get('/api/reports/bill-reconciliation', { params });
+  return response.data;
+};
+
+export const getFinancialYearReport = async (financialYearId: string): Promise<{ success: boolean; data: FinancialYearReportData }> => {
+  const response = await api.get('/api/reports/financial-year', { params: { financialYearId } });
+  return response.data;
+};
+
+

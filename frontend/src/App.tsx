@@ -34,6 +34,8 @@ import PaymentDetail from './pages/PaymentDetail';
 import Bills from './pages/Bills';
 import CreateBill from './pages/CreateBill';
 import BillDetail from './pages/BillDetail';
+import BillingSettings from './pages/BillingSettings';
+import BillDesigner from './pages/BillDesigner';
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: UserRole[] }) => {
@@ -95,7 +97,10 @@ function App() {
               <Route path="/reports" element={<ProtectedRoute allowedRoles={['OWNER', 'CA']}><Pages.ReportsPage /></ProtectedRoute>} />
               <Route path="/documents" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF']}><Pages.DocumentsPage /></ProtectedRoute>} />
               
-              <Route path="/settings/billing" element={<ProtectedRoute allowedRoles={['OWNER']}><Pages.SettingsBillingPage /></ProtectedRoute>} />
+              <Route path="/settings/billing" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><BillingSettings /></ProtectedRoute>} />
+              <Route path="/settings/billing/templates/new" element={<ProtectedRoute allowedRoles={['OWNER']}><BillDesigner /></ProtectedRoute>} />
+              <Route path="/settings/billing/templates/:id/edit" element={<ProtectedRoute allowedRoles={['OWNER']}><BillDesigner /></ProtectedRoute>} />
+              <Route path="/settings/billing/templates/:id" element={<ProtectedRoute allowedRoles={['OWNER', 'STAFF', 'CA']}><BillDesigner /></ProtectedRoute>} />
               <Route path="/settings/users" element={<ProtectedRoute allowedRoles={['OWNER']}><Pages.SettingsUsersPage /></ProtectedRoute>} />
               <Route path="/settings/system" element={<ProtectedRoute allowedRoles={['OWNER']}><Pages.SettingsSystemPage /></ProtectedRoute>} />
             </Route>

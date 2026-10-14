@@ -909,4 +909,414 @@ describe('Phase 4K-C — Historical PDF Immutability Against Template Modificati
       expect(pdfBuf.length).toBeGreaterThan(500);
     });
   });
+
+  describe('Phase 4K-D — PAGE_BREAK Semantics & Multi-Page Template Architecture', () => {
+    it('handles static page break between text blocks, emitting exactly 2 pages with correct page numbering', () => {
+      const pdfData: any = {
+        bill_number: 'SRL/26-27/PB-001',
+        bill_date: '2026-10-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'INDIVIDUAL',
+        total_amount: 50000,
+        paid_amount: 0,
+        balance_amount: 50000,
+        party: { name: 'Adani Logistics Ltd' },
+        template_snapshot: {
+          layout: { page_width: 595.28, page_height: 841.89, margin_top: 40, margin_bottom: 40 },
+          components: [
+            {
+              component_type: 'TEXT',
+              component_key: 'page1_text',
+              position_x: 40,
+              position_y: 60,
+              content_json: { text: 'CONTENT ON PAGE ONE OF TRANSPORT ADVICE' }
+            },
+            {
+              component_type: 'PAGE_BREAK',
+              component_key: 'pb_1',
+              position_x: 40,
+              position_y: 300
+            },
+            {
+              component_type: 'TEXT',
+              component_key: 'page2_text',
+              position_x: 40,
+              position_y: 60,
+              content_json: { text: 'CONTENT ON PAGE TWO - TERMS AND SIGNATURES' }
+            }
+          ]
+        },
+        items: []
+      };
+
+      const pdfBuffer = generateBillPdfBuffer(pdfData);
+      const pdfString = pdfBuffer.toString('utf-8');
+
+      // Verify exactly 2 pages emitted
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(2);
+
+      // Verify content and page numbers
+      expect(pdfString).toContain('CONTENT ON PAGE ONE OF TRANSPORT ADVICE');
+      expect(pdfString).toContain('CONTENT ON PAGE TWO - TERMS AND SIGNATURES');
+      expect(pdfString).toContain('Page 1 of 2');
+      expect(pdfString).toContain('Page 2 of 2');
+    });
+
+    it('handles page breaks between different component types (Header + Text on Page 1, Table on Page 2)', () => {
+      const items = [
+        { sequence_no: 1, trip_number: 'TRP-PB-01', vehicle_number: 'RJ14GB1001', description: 'Freight Mundra', line_amount: 45000 },
+        { sequence_no: 2, trip_number: 'TRP-PB-02', vehicle_number: 'RJ14GB1002', description: 'Freight Kandla', line_amount: 55000 }
+      ];
+
+      const pdfData: any = {
+        bill_number: 'SRL/26-27/PB-002',
+        bill_date: '2026-10-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'CONSOLIDATED',
+        total_amount: 100000,
+        paid_amount: 25000,
+        balance_amount: 75000,
+        party: { name: 'Adani Logistics Ltd' },
+        template_snapshot: {
+          layout: { page_width: 595.28, page_height: 841.89, margin_top: 40, margin_bottom: 40 },
+          components: [
+            {
+              component_type: 'HEADER',
+              component_key: 'hdr_p1',
+              position_x: 40,
+              position_y: 20,
+              content_json: { title: 'SHRI SANWARIYA ROAD LINES', subtitle: 'Consolidated Billing Statement' }
+            },
+            {
+              component_type: 'TEXT',
+              component_key: 'cover_p1',
+              position_x: 40,
+              position_y: 80,
+              content_json: { text: 'Attention: Accounts Department. Please find statement attached.' }
+            },
+            {
+              component_type: 'PAGE_BREAK',
+              component_key: 'pb_sep',
+              position_x: 40,
+              position_y: 200
+            },
+            {
+              component_type: 'TABLE',
+              component_key: 'tbl_p2',
+              position_x: 40,
+              position_y: 20,
+              content_json: {}
+            }
+          ]
+        },
+        items
+      };
+
+      const pdfBuffer = generateBillPdfBuffer(pdfData);
+      const pdfString = pdfBuffer.toString('utf-8');
+
+      // Verify 2 pages
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(2);
+
+      // Cover text on page 1, Table continuation header on page 2
+      expect(pdfString).toContain('Consolidated Billing Statement');
+      expect(pdfString).toContain('Attention: Accounts Department');
+      expect(pdfString).toContain('TRP-PB-01');
+      expect(pdfString).toContain('TRP-PB-02');
+      expect(pdfString).toContain('Page 1 of 2');
+      expect(pdfString).toContain('Page 2 of 2');
+      expect(pdfString).toContain('Continuation');
+    });
+
+    it('handles page break after repeatable table to separate terms/signatures onto terminal page', () => {
+      const items = [
+        { sequence_no: 1, trip_number: 'TRP-PB-10', vehicle_number: 'RJ14GB5555', description: 'Freight Jodhpur', line_amount: 60000 }
+      ];
+
+      const pdfData: any = {
+        bill_number: 'SRL/26-27/PB-003',
+        bill_date: '2026-10-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'INDIVIDUAL',
+        total_amount: 60000,
+        paid_amount: 0,
+        balance_amount: 60000,
+        party: { name: 'Adani Logistics Ltd' },
+        template_snapshot: {
+          layout: { page_width: 595.28, page_height: 841.89, margin_top: 40, margin_bottom: 40 },
+          components: [
+            {
+              component_type: 'HEADER',
+              component_key: 'hdr',
+              position_x: 40,
+              position_y: 20,
+              content_json: { title: 'SHRI SANWARIYA ROAD LINES' }
+            },
+            {
+              component_type: 'TABLE',
+              component_key: 'tbl',
+              position_x: 40,
+              position_y: 80,
+              content_json: {}
+            },
+            {
+              component_type: 'PAGE_BREAK',
+              component_key: 'pb_after_tbl',
+              position_x: 40,
+              position_y: 450
+            },
+            {
+              component_type: 'TEXT',
+              component_key: 'terms',
+              position_x: 40,
+              position_y: 40,
+              content_json: { text: 'DECLARATION: We declare that this invoice shows the actual price of services described.' }
+            },
+            {
+              component_type: 'FOOTER',
+              component_key: 'foot',
+              position_x: 40,
+              position_y: 780,
+              content_json: { text: 'For Shri Sanwariya Road Lines - Authorized Signatory' }
+            }
+          ]
+        },
+        items
+      };
+
+      const pdfBuffer = generateBillPdfBuffer(pdfData);
+      const pdfString = pdfBuffer.toString('utf-8');
+
+      // Verify exactly 2 pages
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(2);
+
+      expect(pdfString).toContain('TRP-PB-10');
+      expect(pdfString).toContain('DECLARATION');
+      expect(pdfString).toContain('Authorized Signatory');
+      expect(pdfString).toContain('Page 1 of 2');
+      expect(pdfString).toContain('Page 2 of 2');
+      expect(pdfString).toContain('Total Amount:   INR 60,000.00');
+    });
+
+    it('avoids blank pages on consecutive and boundary page breaks (leading, trailing, duplicate breaks)', () => {
+      const pdfData: any = {
+        bill_number: 'SRL/26-27/PB-004',
+        bill_date: '2026-10-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'INDIVIDUAL',
+        total_amount: 30000,
+        paid_amount: 0,
+        balance_amount: 30000,
+        party: { name: 'Adani Logistics Ltd' },
+        template_snapshot: {
+          layout: { page_width: 595.28, page_height: 841.89, margin_top: 40, margin_bottom: 40 },
+          components: [
+            // Leading break - must NOT create blank page 1
+            { component_type: 'PAGE_BREAK', component_key: 'pb_lead', position_y: 10 },
+            {
+              component_type: 'TEXT',
+              component_key: 't1',
+              position_x: 40,
+              position_y: 50,
+              content_json: { text: 'PRIMARY SECTION CONTENT' }
+            },
+            // Consecutive duplicate breaks - must collapse to single page break
+            { component_type: 'PAGE_BREAK', component_key: 'pb_mid1', position_y: 200 },
+            { component_type: 'PAGE_BREAK', component_key: 'pb_mid2', position_y: 220 },
+            { component_type: 'PAGE_BREAK', component_key: 'pb_mid3', position_y: 240 },
+            {
+              component_type: 'TEXT',
+              component_key: 't2',
+              position_x: 40,
+              position_y: 50,
+              content_json: { text: 'SECONDARY SECTION CONTENT' }
+            },
+            // Trailing break - must NOT create blank trailing page
+            { component_type: 'PAGE_BREAK', component_key: 'pb_trail', position_y: 500 }
+          ]
+        },
+        items: []
+      };
+
+      const pdfBuffer = generateBillPdfBuffer(pdfData);
+      const pdfString = pdfBuffer.toString('utf-8');
+
+      // Verify exactly 2 pages emitted (not 4 or 5)
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(2);
+
+      expect(pdfString).toContain('PRIMARY SECTION CONTENT');
+      expect(pdfString).toContain('SECONDARY SECTION CONTENT');
+      expect(pdfString).toContain('Page 1 of 2');
+      expect(pdfString).toContain('Page 2 of 2');
+    });
+
+    it('handles complex interaction: multi-page table auto-overflow with page breaks and terminal totals', () => {
+      // 35 items: exceeds 22 items per page, so table alone takes 2 pages!
+      const items = [];
+      for (let i = 1; i <= 35; i++) {
+        items.push({
+          sequence_no: i,
+          trip_number: `TRP-OVF-${String(i).padStart(3, '0')}`,
+          vehicle_number: `GJ12AB${2000 + i}`,
+          description: `Consignment Mundra to Destination ${i}`,
+          line_amount: 40000 + i * 500
+        });
+      }
+
+      const pdfData: any = {
+        bill_number: 'SRL/26-27/PB-005',
+        bill_date: '2026-10-15',
+        bill_status: 'GENERATED',
+        billing_mode: 'CONSOLIDATED',
+        total_amount: 1715000,
+        paid_amount: 0,
+        balance_amount: 1715000,
+        party: { name: 'Adani Logistics Ltd' },
+        template_snapshot: {
+          layout: { page_width: 595.28, page_height: 841.89, margin_top: 40, margin_bottom: 40 },
+          components: [
+            // Section 1: Cover details (Page 1)
+            {
+              component_type: 'HEADER',
+              component_key: 'cov_hdr',
+              position_x: 40,
+              position_y: 20,
+              content_json: { title: 'SHRI SANWARIYA ROAD LINES', subtitle: 'Consolidated Billing Summary' }
+            },
+            {
+              component_type: 'TEXT',
+              component_key: 'cov_txt',
+              position_x: 40,
+              position_y: 70,
+              content_json: { text: 'COVER NOTE: Summary of 35 freight operations executed in October 2026.' }
+            },
+            // Page Break before Table
+            { component_type: 'PAGE_BREAK', component_key: 'pb_before_tbl', position_y: 200 },
+            // Section 2: Table (takes 2 pages: Page 2 items 1..22, Page 3 items 23..35)
+            {
+              component_type: 'TABLE',
+              component_key: 'tbl',
+              position_x: 40,
+              position_y: 30,
+              content_json: {}
+            },
+            // Page Break after Table
+            { component_type: 'PAGE_BREAK', component_key: 'pb_after_tbl', position_y: 700 },
+            // Section 3: Annexure and Legal Declarations (Page 4)
+            {
+              component_type: 'HEADER',
+              component_key: 'annex_hdr',
+              position_x: 40,
+              position_y: 20,
+              content_json: { title: 'ANNEXURE I - STATUTORY UNDERTAKING' }
+            },
+            {
+              component_type: 'TEXT',
+              component_key: 'annex_txt',
+              position_x: 40,
+              position_y: 70,
+              content_json: { text: 'We hereby certify that Goods Transport Agency services were provided as per agreed tariff.' }
+            },
+            {
+              component_type: 'FOOTER',
+              component_key: 'annex_foot',
+              position_x: 40,
+              position_y: 780,
+              content_json: { text: 'Authorized Signatory - Shri Sanwariya Road Lines' }
+            }
+          ]
+        },
+        items
+      };
+
+      const pdfBuffer = generateBillPdfBuffer(pdfData);
+      const pdfString = pdfBuffer.toString('utf-8');
+
+      // Total Pages should be exactly 4 (Page 1: Cover, Page 2: Table P1, Page 3: Table P2, Page 4: Annexure)
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(4);
+
+      // Verify all page labels exist
+      expect(pdfString).toContain('Page 1 of 4');
+      expect(pdfString).toContain('Page 2 of 4');
+      expect(pdfString).toContain('Page 3 of 4');
+      expect(pdfString).toContain('Page 4 of 4');
+
+      // Verify continuation headers appear on continuation table pages
+      expect(pdfString).toContain('Continuation');
+
+      // Verify all 35 trips are rendered without omission
+      expect(pdfString).toContain('TRP-OVF-001');
+      expect(pdfString).toContain('TRP-OVF-022');
+      expect(pdfString).toContain('TRP-OVF-023');
+      expect(pdfString).toContain('TRP-OVF-035');
+
+      // Verify cover text and annexure text
+      expect(pdfString).toContain('Summary of 35 freight operations');
+      expect(pdfString).toContain('ANNEXURE I - STATUTORY UNDERTAKING');
+
+      // Verify authoritative totals block is rendered on the terminal page
+      expect(pdfString).toContain('Total Amount:   INR 17,15,000.00');
+    });
+
+    it('previews draft template with PAGE_BREAK via /api/bill-templates/preview endpoint without mutation', async () => {
+      const initialCount = (await pool.query('SELECT COUNT(*)::int as c FROM bill_templates')).rows[0].c;
+
+      const res = await request(app)
+        .post('/api/bill-templates/preview')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          template_type: 'MULTI_PAGE',
+          layout_json: { page_width: 595.28, page_height: 841.89 },
+          components: [
+            {
+              component_type: 'HEADER',
+              component_key: 'h1',
+              position_x: 40,
+              position_y: 20,
+              content_json: { text: 'PREVIEW PAGE 1' }
+            },
+            {
+              component_type: 'PAGE_BREAK',
+              component_key: 'pb_prev',
+              position_x: 40,
+              position_y: 200
+            },
+            {
+              component_type: 'HEADER',
+              component_key: 'h2',
+              position_x: 40,
+              position_y: 20,
+              content_json: { text: 'PREVIEW PAGE 2' }
+            }
+          ],
+          format: 'pdf'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+
+      const pdfString = Buffer.from(res.body).toString('utf-8');
+      const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g);
+      expect(pageMatches).not.toBeNull();
+      expect(pageMatches!.length).toBe(2);
+      expect(pdfString).toContain('PREVIEW PAGE 1');
+      expect(pdfString).toContain('PREVIEW PAGE 2');
+      expect(pdfString).toContain('Page 1 of 2');
+      expect(pdfString).toContain('Page 2 of 2');
+
+      // Verify zero DB mutations
+      const finalCount = (await pool.query('SELECT COUNT(*)::int as c FROM bill_templates')).rows[0].c;
+      expect(finalCount).toBe(initialCount);
+    });
+  });
 });

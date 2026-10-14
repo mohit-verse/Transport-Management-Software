@@ -673,3 +673,291 @@ export const downloadBillPdf = async (id: string, versionNumber?: number): Promi
   return response.data;
 };
 
+// ==========================================
+// Bill Templates & Designer API
+// ==========================================
+
+export type ComponentType =
+  | 'TEXT'
+  | 'TABLE'
+  | 'LINE'
+  | 'BORDER'
+  | 'IMAGE'
+  | 'LOGO'
+  | 'SIGNATURE'
+  | 'STAMP'
+  | 'HEADER'
+  | 'FOOTER'
+  | 'PAGE_BREAK'
+  | 'REPEATABLE_SECTION'
+  | 'REPEATABLE_ROW';
+
+export interface BillTemplateComponent {
+  component_type: ComponentType;
+  component_key: string;
+  position_x?: number | null;
+  position_y?: number | null;
+  width?: number | null;
+  height?: number | null;
+  style_json?: Record<string, any>;
+  content_json?: Record<string, any>;
+}
+
+export interface DynamicFieldBinding {
+  field_definition_id: string;
+  binding_path: string;
+  display_label?: string | null;
+  is_repeatable?: boolean;
+  default_value?: string | null;
+}
+
+export interface BillTemplateAsset {
+  id: string;
+  template_id: string;
+  asset_type: 'LOGO' | 'SIGNATURE' | 'STAMP' | 'IMAGE';
+  file_name: string;
+  storage_key: string;
+  mime_type?: string;
+  width?: number;
+  height?: number;
+  created_at?: string;
+}
+
+export interface BillTemplateListItem {
+  id: string;
+  name: string;
+  template_type: 'INDIVIDUAL' | 'CONSOLIDATED' | 'MULTI_PAGE';
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  component_count: number;
+  asset_count: number;
+  dynamic_field_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillTemplateDetail {
+  id: string;
+  name: string;
+  template_type: 'INDIVIDUAL' | 'CONSOLIDATED' | 'MULTI_PAGE';
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  layout_json: {
+    page_width?: number;
+    page_height?: number;
+    margin_left?: number;
+    margin_right?: number;
+    margin_top?: number;
+    margin_bottom?: number;
+    primary_font?: string;
+    orientation?: 'PORTRAIT' | 'LANDSCAPE';
+    [key: string]: any;
+  };
+  components: BillTemplateComponent[];
+  dynamic_fields: DynamicFieldBinding[];
+  assets?: BillTemplateAsset[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DynamicFieldDefinition {
+  id: string;
+  source_entity: string;
+  field_key: string;
+  field_label: string;
+  data_type: 'STRING' | 'NUMBER' | 'CURRENCY' | 'DATE' | 'BOOLEAN' | 'JSON';
+  is_repeatable: boolean;
+  description?: string;
+}
+
+export interface TemplateImportResult {
+  name: string;
+  template_type: 'INDIVIDUAL' | 'CONSOLIDATED' | 'MULTI_PAGE';
+  layout_json: Record<string, any>;
+  components: BillTemplateComponent[];
+  dynamic_fields: DynamicFieldBinding[];
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  warnings: string[];
+}
+
+export interface NumberingSeriesRecord {
+  id: string;
+  party_id: string;
+  party_name?: string;
+  financial_year_id: string;
+  financial_year_code?: string;
+  series_code: string;
+  prefix: string;
+  current_number: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const getBillTemplates = async (params?: {
+  template_type?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}): Promise<{ success: boolean; data: BillTemplateListItem[]; pagination: any }> => {
+  const response = await api.get('/api/bill-templates', { params });
+  return response.data;
+};
+
+export const getBillTemplate = async (id: string): Promise<{ success: boolean; data: BillTemplateDetail }> => {
+  const response = await api.get(`/api/bill-templates/${id}`);
+  return response.data;
+};
+
+export const createBillTemplate = async (data: {
+  name: string;
+  template_type: 'INDIVIDUAL' | 'CONSOLIDATED' | 'MULTI_PAGE';
+  status?: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  layout_json?: Record<string, any>;
+  components?: BillTemplateComponent[];
+  dynamic_fields?: DynamicFieldBinding[];
+}): Promise<{ success: boolean; data: BillTemplateDetail }> => {
+  const response = await api.post('/api/bill-templates', data);
+  return response.data;
+};
+
+export const updateBillTemplate = async (
+  id: string,
+  data: {
+    name?: string;
+    template_type?: 'INDIVIDUAL' | 'CONSOLIDATED' | 'MULTI_PAGE';
+    status?: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+    layout_json?: Record<string, any>;
+    components?: BillTemplateComponent[];
+    dynamic_fields?: DynamicFieldBinding[];
+  }
+): Promise<{ success: boolean; data: BillTemplateDetail }> => {
+  const response = await api.patch(`/api/bill-templates/${id}`, data);
+  return response.data;
+};
+
+export const deleteBillTemplate = async (id: string): Promise<{ success: boolean; data: any }> => {
+  const response = await api.delete(`/api/bill-templates/${id}`);
+  return response.data;
+};
+
+export const previewBillTemplatePdf = async (data: {
+  template_id?: string;
+  template_type?: string;
+  layout_json?: Record<string, any>;
+  components?: BillTemplateComponent[];
+  dynamic_fields?: DynamicFieldBinding[];
+  sample_data?: Record<string, any>;
+}): Promise<Blob> => {
+  const response = await api.post(
+    '/api/bill-templates/preview',
+    { ...data, format: 'pdf' },
+    { responseType: 'blob' }
+  );
+  return response.data;
+};
+
+export const previewBillTemplateJson = async (data: {
+  template_id?: string;
+  template_type?: string;
+  layout_json?: Record<string, any>;
+  components?: BillTemplateComponent[];
+  dynamic_fields?: DynamicFieldBinding[];
+  sample_data?: Record<string, any>;
+}): Promise<{ success: boolean; data: any }> => {
+  const response = await api.post('/api/bill-templates/preview', { ...data, format: 'json' });
+  return response.data;
+};
+
+export const importBillTemplate = async (data: {
+  file_name: string;
+  file_content_base64: string;
+  mime_type: 'application/pdf' | 'image/jpeg' | 'image/png';
+}): Promise<{ success: boolean; data: TemplateImportResult }> => {
+  const response = await api.post('/api/bill-templates/import', data);
+  return response.data;
+};
+
+export const uploadTemplateAsset = async (
+  templateId: string,
+  data: {
+    asset_type: 'LOGO' | 'SIGNATURE' | 'STAMP' | 'IMAGE';
+    file_name: string;
+    file_content_base64?: string;
+    mime_type?: string;
+    width?: number;
+    height?: number;
+  }
+): Promise<{ success: boolean; data: BillTemplateAsset }> => {
+  const response = await api.post(`/api/bill-templates/${templateId}/assets`, data);
+  return response.data;
+};
+
+export const getTemplateAssetFileBlob = async (templateId: string, assetId: string): Promise<Blob> => {
+  const response = await api.get(`/api/bill-templates/${templateId}/assets/${assetId}/file`, {
+    responseType: 'blob'
+  });
+  return response.data;
+};
+
+export const deleteTemplateAsset = async (
+  templateId: string,
+  assetId: string
+): Promise<{ success: boolean; data: any }> => {
+  const response = await api.delete(`/api/bill-templates/${templateId}/assets/${assetId}`);
+  return response.data;
+};
+
+export const getDynamicFields = async (params?: {
+  source_entity?: string;
+  search?: string;
+  is_repeatable?: boolean;
+}): Promise<{ success: boolean; data: DynamicFieldDefinition[] }> => {
+  const response = await api.get('/api/dynamic-fields', { params });
+  return response.data;
+};
+
+// ==========================================
+// Numbering Series Management API
+// ==========================================
+
+export const getNumberingSeriesList = async (params?: {
+  party_id?: string;
+  financial_year_id?: string;
+  is_active?: boolean;
+}): Promise<{ success: boolean; data: NumberingSeriesRecord[] }> => {
+  const response = await api.get('/api/numbering-series', { params });
+  return response.data;
+};
+
+export const getNumberingSeriesDetail = async (id: string): Promise<{ success: boolean; data: NumberingSeriesRecord }> => {
+  const response = await api.get(`/api/numbering-series/${id}`);
+  return response.data;
+};
+
+export const createNumberingSeries = async (data: {
+  party_id: string;
+  financial_year_id: string;
+  series_code: string;
+  prefix: string;
+}): Promise<{ success: boolean; data: NumberingSeriesRecord }> => {
+  const response = await api.post('/api/numbering-series', data);
+  return response.data;
+};
+
+export const updateNumberingSeries = async (
+  id: string,
+  data: {
+    series_code?: string;
+    prefix?: string;
+    is_active?: boolean;
+  }
+): Promise<{ success: boolean; data: NumberingSeriesRecord }> => {
+  const response = await api.patch(`/api/numbering-series/${id}`, data);
+  return response.data;
+};
+
+export const deactivateNumberingSeries = async (id: string): Promise<{ success: boolean; data: NumberingSeriesRecord }> => {
+  const response = await api.post(`/api/numbering-series/${id}/deactivate`);
+  return response.data;
+};
+

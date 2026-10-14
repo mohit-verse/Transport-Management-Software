@@ -148,179 +148,312 @@ function renderStructuredTemplate(
   const otherComponents = components.filter((c) => !['HEADER', 'FOOTER', 'TABLE'].includes(c.component_type));
 
   const items = Array.isArray(bill.items) ? bill.items : [];
-
-  // Determine row pagination: up to 24 rows per page
   const itemsPerPage = 22;
-  const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
-  const pageStreams: string[] = [];
 
-  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
-    const pageNum = pageIdx + 1;
-    const isFirstPage = pageNum === 1;
-    const isLastPage = pageNum === totalPages;
-    const itemsOnPage = items.slice(pageIdx * itemsPerPage, (pageIdx + 1) * itemsPerPage);
+  // 1. Partition components into sections by PAGE_BREAK
+  // Collapse consecutive page breaks and filter out leading/trailing breaks to prevent blank pages
+  interface PageBreakSection {
+    components: Array<any>;
+    startPageBreakY?: number | null;
+  }
 
-    const lines: string[] = [];
+  const sections: PageBreakSection[] = [];
+  let currentChunk: Array<any> = [];
+  let lastPbY: number | null = null;
 
-    // 1. Render Headers
-    if (isFirstPage && headerComponents.length > 0) {
-      for (const h of headerComponents) {
-        const title = resolveTextTemplate(h.content_json?.title || h.content_json?.text || 'SHRI SANWARIYA ROAD LINES', context);
-        const subtitle = resolveTextTemplate(h.content_json?.subtitle || '', context);
-        const y = toPdfY(h.position_y, pageHeight - marginTop - 20);
-
-        lines.push('BT');
-        lines.push('/F2 16 Tf');
-        lines.push(`${marginLeft} ${y} Td`);
-        lines.push(`(${sanitize(title)}) Tj`);
-        if (subtitle) {
-          lines.push('/F1 9 Tf');
-          lines.push('0 -16 Td');
-          lines.push(`(${sanitize(subtitle)}) Tj`);
-        }
-        lines.push('ET');
-
-        // Divider
-        lines.push(`${marginLeft} ${y - 25} m ${pageWidth - marginRight} ${y - 25} l S`);
+  for (const comp of components) {
+    if (comp.component_type === 'PAGE_BREAK') {
+      if (currentChunk.length > 0) {
+        sections.push({
+          components: currentChunk,
+          startPageBreakY: lastPbY
+        });
+        currentChunk = [];
       }
-    } else if (!isFirstPage) {
-      // Continuation header
-      lines.push('BT');
-      lines.push('/F2 10 Tf');
-      lines.push(`${marginLeft} ${pageHeight - marginTop - 15} Td`);
-      lines.push(`(${sanitize('SHRI SANWARIYA ROAD LINES')} - Bill No: ${sanitize(bill.bill_number)} (Continuation) [Page ${pageNum} of ${totalPages}]) Tj`);
-      lines.push('ET');
-      lines.push(`${marginLeft} ${pageHeight - marginTop - 25} m ${pageWidth - marginRight} ${pageHeight - marginTop - 25} l S`);
+      lastPbY = comp.position_y ?? null;
+    } else {
+      currentChunk.push(comp);
     }
+  }
 
-    // 2. Render Other Components on first page (Text, Lines, Images)
-    if (isFirstPage) {
-      for (const comp of otherComponents) {
-        const posX = comp.position_x !== null && comp.position_x !== undefined ? comp.position_x : marginLeft;
-        const posY = toPdfY(comp.position_y, 650);
+  if (currentChunk.length > 0) {
+    sections.push({
+      components: currentChunk,
+      startPageBreakY: lastPbY
+    });
+  }
 
-        if (comp.component_type === 'TEXT') {
-          const fontSize = comp.style_json?.font_size || 9;
-          const isBold = comp.style_json?.bold || false;
-          let text = '';
-          const rawTemplate = comp.content_json?.template_text || comp.content_json?.text || '';
-          if (rawTemplate) {
-            text = resolveTextTemplate(rawTemplate, context);
-          } else if (comp.content_json?.label && comp.content_json?.binding) {
-            const val = resolveTextTemplate(comp.content_json.binding, context);
-            text = `${comp.content_json.label}: ${val}`;
-          } else if (comp.content_json?.label) {
-            text = comp.content_json.label;
+  // Fallback to single empty section if no non-break components exist
+  if (sections.length === 0) {
+    sections.push({ components: [] });
+  }
+
+  // 2. Compute page counts for each section
+  interface SectionPlan {
+    components: Array<any>;
+    startPageBreakY?: number | null;
+    hasTable: boolean;
+    pageCount: number;
+  }
+
+  const sectionPlans: SectionPlan[] = sections.map((sec) => {
+    const hasTable = sec.components.some((c) => c.component_type === 'TABLE');
+    const pageCount = hasTable && items.length > 0
+      ? Math.max(1, Math.ceil(items.length / itemsPerPage))
+      : 1;
+    return {
+      ...sec,
+      hasTable,
+      pageCount
+    };
+  });
+
+  const totalPages = Math.max(1, sectionPlans.reduce((sum, s) => sum + s.pageCount, 0));
+  const pageStreams: string[] = [];
+  let globalPageNum = 1;
+
+  // 3. Render pages section by section
+  for (let sIdx = 0; sIdx < sectionPlans.length; sIdx++) {
+    const section = sectionPlans[sIdx];
+
+    const headerComponents = section.components.filter((c) => c.component_type === 'HEADER');
+    const footerComponents = section.components.filter((c) => c.component_type === 'FOOTER');
+    const tableComponents = section.components.filter((c) => c.component_type === 'TABLE');
+    const otherComponents = section.components.filter((c) => !['HEADER', 'FOOTER', 'TABLE'].includes(c.component_type));
+
+    for (let subPageIdx = 0; subPageIdx < section.pageCount; subPageIdx++) {
+      const isFirstPageOfDoc = globalPageNum === 1;
+      const isLastPageOfDoc = globalPageNum === totalPages;
+      const isFirstPageOfSection = subPageIdx === 0;
+      const isLastPageOfSection = subPageIdx === section.pageCount - 1;
+
+      const lines: string[] = [];
+
+      // A. Render Headers
+      if (isFirstPageOfSection && headerComponents.length > 0) {
+        for (const h of headerComponents) {
+          const title = resolveTextTemplate(h.content_json?.title || h.content_json?.text || 'SHRI SANWARIYA ROAD LINES', context);
+          const subtitle = resolveTextTemplate(h.content_json?.subtitle || '', context);
+          let rawY = h.position_y;
+          if (rawY !== null && rawY !== undefined && section.startPageBreakY != null && rawY >= section.startPageBreakY) {
+            rawY = rawY - section.startPageBreakY + marginTop;
+          }
+          const y = toPdfY(rawY, pageHeight - marginTop - 20);
+
+          lines.push('BT');
+          lines.push('/F2 16 Tf');
+          lines.push(`${marginLeft} ${y} Td`);
+          lines.push(`(${sanitize(title)}) Tj`);
+          if (subtitle) {
+            lines.push('/F1 9 Tf');
+            lines.push('0 -16 Td');
+            lines.push(`(${sanitize(subtitle)}) Tj`);
+          }
+          lines.push('ET');
+
+          // Divider
+          lines.push(`${marginLeft} ${y - 25} m ${pageWidth - marginRight} ${y - 25} l S`);
+        }
+      } else if (!isFirstPageOfDoc) {
+        // Continuation header
+        lines.push('BT');
+        lines.push('/F2 10 Tf');
+        lines.push(`${marginLeft} ${pageHeight - marginTop - 15} Td`);
+        lines.push(`(${sanitize('SHRI SANWARIYA ROAD LINES')} - Bill No: ${sanitize(bill.bill_number)} (Continuation) [Page ${globalPageNum} of ${totalPages}]) Tj`);
+        lines.push('ET');
+        lines.push(`${marginLeft} ${pageHeight - marginTop - 25} m ${pageWidth - marginRight} ${pageHeight - marginTop - 25} l S`);
+      }
+
+      // B. Render Other Components on first page of section
+      let lowestCompBottomY: number | null = null;
+
+      if (isFirstPageOfSection) {
+        for (const comp of otherComponents) {
+          const posX = comp.position_x !== null && comp.position_x !== undefined ? comp.position_x : marginLeft;
+          let rawY = comp.position_y;
+          if (rawY !== null && rawY !== undefined && section.startPageBreakY != null && rawY >= section.startPageBreakY) {
+            rawY = rawY - section.startPageBreakY + marginTop;
+          }
+          const posY = toPdfY(rawY, 650);
+          const compH = comp.height || 30;
+          const bottomY = posY - compH;
+          if (lowestCompBottomY === null || bottomY < lowestCompBottomY) {
+            lowestCompBottomY = bottomY;
           }
 
-          if (text) {
-            const textLines = text.split('\n');
-            lines.push('BT');
-            lines.push(`/${isBold ? 'F2' : 'F1'} ${fontSize} Tf`);
-            lines.push(`${posX} ${posY} Td`);
-            lines.push(`(${sanitize(textLines[0])}) Tj`);
-            for (let li = 1; li < textLines.length; li++) {
-              lines.push(`0 -${fontSize + 4} Td`);
-              lines.push(`(${sanitize(textLines[li])}) Tj`);
+          if (comp.component_type === 'TEXT') {
+            const fontSize = comp.style_json?.font_size || 9;
+            const isBold = comp.style_json?.bold || false;
+            let text = '';
+            const rawTemplate = comp.content_json?.template_text || comp.content_json?.text || '';
+            if (rawTemplate) {
+              text = resolveTextTemplate(rawTemplate, context);
+            } else if (comp.content_json?.label && comp.content_json?.binding) {
+              const val = resolveTextTemplate(comp.content_json.binding, context);
+              text = `${comp.content_json.label}: ${val}`;
+            } else if (comp.content_json?.label) {
+              text = comp.content_json.label;
             }
+
+            if (text) {
+              const textLines = text.split('\n');
+              lines.push('BT');
+              lines.push(`/${isBold ? 'F2' : 'F1'} ${fontSize} Tf`);
+              lines.push(`${posX} ${posY} Td`);
+              lines.push(`(${sanitize(textLines[0])}) Tj`);
+              for (let li = 1; li < textLines.length; li++) {
+                lines.push(`0 -${fontSize + 4} Td`);
+                lines.push(`(${sanitize(textLines[li])}) Tj`);
+              }
+              lines.push('ET');
+            }
+          } else if (comp.component_type === 'LINE' || comp.component_type === 'BORDER') {
+            const lineWidth = comp.width || printableWidth;
+            lines.push(`${posX} ${posY} m ${posX + lineWidth} ${posY} l S`);
+          } else if (['IMAGE', 'LOGO', 'SIGNATURE', 'STAMP'].includes(comp.component_type)) {
+            const w = comp.width || 120;
+            const h = comp.height || 40;
+            const label = comp.content_json?.label || comp.component_key || comp.component_type;
+
+            // Check if this asset component is marked required
+            const isRequired = comp.content_json?.required === true || comp.content_json?.is_required === true;
+            if (isRequired) {
+              const snapshotAssets = bill.template_snapshot?.assets || [];
+              const matchingAsset = snapshotAssets.find((a: any) =>
+                (comp.content_json?.storage_key && a.storage_key === comp.content_json.storage_key) ||
+                (comp.content_json?.asset_id && a.id === comp.content_json.asset_id) ||
+                (comp.content_json?.asset_type && a.asset_type === comp.content_json.asset_type) ||
+                (a.asset_type === comp.component_type)
+              );
+              if (!matchingAsset || !matchingAsset.storage_key) {
+                throw new Error(`Required bill template asset "${label}" (${comp.component_type}) is missing from template snapshot`);
+              }
+            }
+
+            // Render framed placeholder box
+            lines.push(`${posX} ${posY - h} ${w} ${h} re S`);
+            lines.push('BT');
+            lines.push('/F1 8 Tf');
+            lines.push(`${posX + 6} ${posY - h + (h / 2) - 4} Td`);
+            lines.push(`([${sanitize(label)}]) Tj`);
             lines.push('ET');
           }
-        } else if (comp.component_type === 'LINE' || comp.component_type === 'BORDER') {
-          const lineWidth = comp.width || printableWidth;
-          lines.push(`${posX} ${posY} m ${posX + lineWidth} ${posY} l S`);
-        } else if (['IMAGE', 'LOGO', 'SIGNATURE', 'STAMP'].includes(comp.component_type)) {
-          const w = comp.width || 120;
-          const h = comp.height || 40;
-          const label = comp.content_json?.label || comp.component_key || comp.component_type;
+        }
+      }
 
-          // Check if this asset component is marked required
-          const isRequired = comp.content_json?.required === true || comp.content_json?.is_required === true;
-          if (isRequired) {
-            const snapshotAssets = bill.template_snapshot?.assets || [];
-            const matchingAsset = snapshotAssets.find((a: any) =>
-              (comp.content_json?.storage_key && a.storage_key === comp.content_json.storage_key) ||
-              (comp.content_json?.asset_id && a.id === comp.content_json.asset_id) ||
-              (comp.content_json?.asset_type && a.asset_type === comp.content_json.asset_type) ||
-              (a.asset_type === comp.component_type)
-            );
-            if (!matchingAsset || !matchingAsset.storage_key) {
-              throw new Error(`Required bill template asset "${label}" (${comp.component_type}) is missing from template snapshot`);
+      // C. Render Table
+      let currentTableY: number | null = null;
+
+      if (section.hasTable) {
+        let tableStartY = isFirstPageOfDoc ? 520 : pageHeight - marginTop - 45;
+        if (tableComponents.length > 0 && tableComponents[0].position_y !== null && tableComponents[0].position_y !== undefined) {
+          if (isFirstPageOfSection) {
+            let rawTableY = tableComponents[0].position_y;
+            if (rawTableY !== null && rawTableY !== undefined && section.startPageBreakY != null && rawTableY >= section.startPageBreakY) {
+              rawTableY = rawTableY - section.startPageBreakY + marginTop;
             }
+            tableStartY = toPdfY(rawTableY, 520);
           }
+        }
 
-          // Render framed placeholder box
-          lines.push(`${posX} ${posY - h} ${w} ${h} re S`);
+        const itemsOnPage = items.slice(subPageIdx * itemsPerPage, (subPageIdx + 1) * itemsPerPage);
+
+        // Table Header
+        lines.push('BT');
+        lines.push('/F2 9 Tf');
+        lines.push(`${marginLeft} ${tableStartY} Td`);
+        lines.push(`(#) Tj`);
+        lines.push('25 0 Td');
+        lines.push(`(Description) Tj`);
+        lines.push('190 0 Td');
+        lines.push(`(Trip No) Tj`);
+        lines.push('80 0 Td');
+        lines.push(`(Vehicle) Tj`);
+        lines.push('85 0 Td');
+        lines.push(`(Amount) Tj`);
+        lines.push('ET');
+
+        lines.push(`${marginLeft} ${tableStartY - 6} m ${pageWidth - marginRight} ${tableStartY - 6} l S`);
+
+        let rowY = tableStartY - 20;
+        for (const item of itemsOnPage) {
           lines.push('BT');
-          lines.push('/F1 8 Tf');
-          lines.push(`${posX + 6} ${posY - h + (h / 2) - 4} Td`);
-          lines.push(`([${sanitize(label)}]) Tj`);
+          lines.push('/F1 9 Tf');
+          lines.push(`${marginLeft} ${rowY} Td`);
+          lines.push(`(${String(item.sequence_no || 1)}) Tj`);
+          lines.push('25 0 Td');
+          lines.push(`(${sanitize((item.description || 'Freight Charges').slice(0, 36))}) Tj`);
+          lines.push('190 0 Td');
+          lines.push(`(${sanitize(item.trip_number || '-')}) Tj`);
+          lines.push('80 0 Td');
+          lines.push(`(${sanitize(item.vehicle_number || '-')}) Tj`);
+          lines.push('85 0 Td');
+          lines.push(`(${sanitize(formatCurrency(item.line_amount))}) Tj`);
+          lines.push('ET');
+          rowY -= 15;
+        }
+
+        currentTableY = rowY;
+
+        // If table completes on this page but there are subsequent sections, render table total separator
+        if (isLastPageOfSection && !isLastPageOfDoc) {
+          const subtotalY = Math.max(rowY - 8, marginBottom + 50);
+          lines.push(`${marginLeft} ${subtotalY} m ${pageWidth - marginRight} ${subtotalY} l S`);
+          lines.push('BT');
+          lines.push(`${pageWidth - marginRight - 190} ${subtotalY - 14} Td`);
+          lines.push('/F2 9 Tf');
+          lines.push(`(Total Amount:   ${sanitize(formatCurrency(bill.total_amount))}) Tj`);
           lines.push('ET');
         }
       }
-    }
 
-    // 3. Render Table
-    let tableStartY = isFirstPage ? 520 : pageHeight - marginTop - 45;
-    if (tableComponents.length > 0 && tableComponents[0].position_y !== null && tableComponents[0].position_y !== undefined) {
-      if (isFirstPage) {
-        tableStartY = toPdfY(tableComponents[0].position_y, 520);
-      }
-    }
+      // D. Render Totals on last page of document
+      if (isLastPageOfDoc) {
+        let baseTotalsY: number;
+        if (currentTableY !== null) {
+          baseTotalsY = currentTableY - 10;
+        } else if (lowestCompBottomY !== null) {
+          baseTotalsY = lowestCompBottomY - 15;
+        } else {
+          baseTotalsY = marginBottom + 90;
+        }
+        const totalsY = Math.max(baseTotalsY, marginBottom + 60);
 
-    // Table Header
-    lines.push('BT');
-    lines.push('/F2 9 Tf');
-    lines.push(`${marginLeft} ${tableStartY} Td`);
-    lines.push(`(#) Tj`);
-    lines.push('25 0 Td');
-    lines.push(`(Description) Tj`);
-    lines.push('190 0 Td');
-    lines.push(`(Trip No) Tj`);
-    lines.push('80 0 Td');
-    lines.push(`(Vehicle) Tj`);
-    lines.push('85 0 Td');
-    lines.push(`(Amount) Tj`);
-    lines.push('ET');
+        lines.push(`${marginLeft} ${totalsY} m ${pageWidth - marginRight} ${totalsY} l S`);
 
-    lines.push(`${marginLeft} ${tableStartY - 6} m ${pageWidth - marginRight} ${tableStartY - 6} l S`);
+        lines.push('BT');
+        lines.push(`${pageWidth - marginRight - 190} ${totalsY - 16} Td`);
+        lines.push('/F2 10 Tf');
+        lines.push(`(Total Amount:   ${sanitize(formatCurrency(bill.total_amount))}) Tj`);
+        lines.push('0 -14 Td');
+        lines.push('/F1 9 Tf');
+        lines.push(`(Paid Amount:    ${sanitize(formatCurrency(bill.paid_amount || 0))}) Tj`);
+        lines.push('0 -14 Td');
+        lines.push('/F2 9 Tf');
+        lines.push(`(Balance Amount: ${sanitize(formatCurrency(bill.balance_amount || 0))}) Tj`);
+        lines.push('ET');
 
-    let currentY = tableStartY - 20;
-    for (const item of itemsOnPage) {
-      lines.push('BT');
-      lines.push('/F1 9 Tf');
-      lines.push(`${marginLeft} ${currentY} Td`);
-      lines.push(`(${String(item.sequence_no || 1)}) Tj`);
-      lines.push('25 0 Td');
-      lines.push(`(${sanitize((item.description || 'Freight Charges').slice(0, 36))}) Tj`);
-      lines.push('190 0 Td');
-      lines.push(`(${sanitize(item.trip_number || '-')}) Tj`);
-      lines.push('80 0 Td');
-      lines.push(`(${sanitize(item.vehicle_number || '-')}) Tj`);
-      lines.push('85 0 Td');
-      lines.push(`(${sanitize(formatCurrency(item.line_amount))}) Tj`);
-      lines.push('ET');
-      currentY -= 15;
-    }
-
-    // 4. Render Totals on last page
-    if (isLastPage) {
-      const totalsY = Math.max(currentY - 10, marginBottom + 60);
-      lines.push(`${marginLeft} ${totalsY} m ${pageWidth - marginRight} ${totalsY} l S`);
-
-      lines.push('BT');
-      lines.push(`${pageWidth - marginRight - 190} ${totalsY - 16} Td`);
-      lines.push('/F2 10 Tf');
-      lines.push(`(Total Amount:   ${sanitize(formatCurrency(bill.total_amount))}) Tj`);
-      lines.push('0 -14 Td');
-      lines.push('/F1 9 Tf');
-      lines.push(`(Paid Amount:    ${sanitize(formatCurrency(bill.paid_amount || 0))}) Tj`);
-      lines.push('0 -14 Td');
-      lines.push('/F2 9 Tf');
-      lines.push(`(Balance Amount: ${sanitize(formatCurrency(bill.balance_amount || 0))}) Tj`);
-      lines.push('ET');
-
-      // Custom footer components if any
-      if (footerComponents.length > 0) {
+        // Custom footer components if any
+        if (footerComponents.length > 0) {
+          for (const foot of footerComponents) {
+            const footText = resolveTextTemplate(foot.content_json?.footer_text || foot.content_json?.text || '', context);
+            if (footText) {
+              lines.push('BT');
+              lines.push('/F1 8 Tf');
+              lines.push(`${marginLeft} ${marginBottom + 30} Td`);
+              lines.push(`(${sanitize(footText)}) Tj`);
+              lines.push('ET');
+            }
+          }
+        } else {
+          lines.push('BT');
+          lines.push('/F1 8 Tf');
+          lines.push(`${marginLeft} ${marginBottom + 30} Td`);
+          lines.push(`(${sanitize('This is a computer-generated billing document issued by Shri Sanwariya Road Lines.')}) Tj`);
+          lines.push('ET');
+        }
+      } else if (isLastPageOfSection && footerComponents.length > 0) {
+        // Section-specific footer on non-terminal page
         for (const foot of footerComponents) {
           const footText = resolveTextTemplate(foot.content_json?.footer_text || foot.content_json?.text || '', context);
           if (footText) {
@@ -331,23 +464,18 @@ function renderStructuredTemplate(
             lines.push('ET');
           }
         }
-      } else {
-        lines.push('BT');
-        lines.push('/F1 8 Tf');
-        lines.push(`${marginLeft} ${marginBottom + 30} Td`);
-        lines.push(`(${sanitize('This is a computer-generated billing document issued by Shri Sanwariya Road Lines.')}) Tj`);
-        lines.push('ET');
       }
+
+      // E. Page number footer on every page
+      lines.push('BT');
+      lines.push('/F1 8 Tf');
+      lines.push(`${pageWidth / 2 - 25} ${marginBottom + 10} Td`);
+      lines.push(`(Page ${globalPageNum} of ${totalPages}) Tj`);
+      lines.push('ET');
+
+      pageStreams.push(lines.join('\n'));
+      globalPageNum++;
     }
-
-    // 5. Page number footer on every page
-    lines.push('BT');
-    lines.push('/F1 8 Tf');
-    lines.push(`${pageWidth / 2 - 25} ${marginBottom + 10} Td`);
-    lines.push(`(Page ${pageNum} of ${totalPages}) Tj`);
-    lines.push('ET');
-
-    pageStreams.push(lines.join('\n'));
   }
 
   return assemblePdf(pageStreams, pageWidth, pageHeight);

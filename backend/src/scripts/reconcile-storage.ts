@@ -55,10 +55,11 @@ export async function reconcileStorage(options?: ReconcileOptions): Promise<Stor
       );
     `);
     if (checkBvRes.rows[0].exists) {
-      const bvRes = await client.query('SELECT document_reference, version_status FROM bill_versions');
+      const bvRes = await client.query('SELECT bill_id, version_number, document_reference, version_status FROM bill_versions');
       bvRes.rows.forEach((r: any) => {
-        if (r.document_reference) {
-          const normalized = path.normalize(r.document_reference).replace(/^(\.\.[\/\\])+/, '');
+        const ref = r.document_reference || (r.bill_id && r.version_number ? `bills/${r.bill_id}/v${r.version_number}.pdf` : null);
+        if (ref) {
+          const normalized = path.normalize(ref).replace(/^(\.\.[\/\\])+/, '');
           dbKeys.add(normalized);
           if (r.version_status === 'SUPERSEDED') {
             historicalKeys.add(normalized);

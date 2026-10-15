@@ -8,13 +8,21 @@ import { PoolClient } from 'pg';
 export const createParty = async (data: any, userId: string, client?: PoolClient) => {
   const sql = `
     INSERT INTO parties 
-    (party_type, name, primary_mobile, address, city, state, pin_code, gstin, pan_number, is_tds_applicable)
+    (party_type, name, primary_mobile, full_address, city, state, pin_code, gstin, billing_address, tds_applicable)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *
   `;
   const params = [
-    data.party_type, data.name, data.primary_mobile, data.address, data.city, 
-    data.state, data.pin_code, data.gstin, data.pan_number, data.is_tds_applicable
+    data.party_type,
+    data.name,
+    data.primary_mobile,
+    data.full_address || data.address || null,
+    data.city || null,
+    data.state || null,
+    data.pin_code || null,
+    data.gstin || null,
+    data.billing_address || null,
+    data.tds_applicable !== undefined ? data.tds_applicable : (data.is_tds_applicable !== undefined ? data.is_tds_applicable : false),
   ];
   
   const q = client ? client.query.bind(client) : query;

@@ -6,10 +6,10 @@ import { PoolClient } from 'pg';
 
 export const createVehicle = async (data: any, userId: string) => {
   const sql = `
-    INSERT INTO own_fleet_vehicles (vehicle_number, vehicle_type, capacity_tonnage, purchase_date)
-    VALUES ($1, $2, $3, $4) RETURNING *
+    INSERT INTO own_fleet_vehicles (vehicle_number, maintenance_notes)
+    VALUES ($1, $2) RETURNING *
   `;
-  const res = await query(sql, [data.vehicle_number, data.vehicle_type, data.capacity_tonnage, data.purchase_date]);
+  const res = await query(sql, [data.vehicle_number, data.maintenance_notes || null]);
   const v = res.rows[0];
 
   await createAudit({ entityType: 'OWN_FLEET_VEHICLE', entityId: v.id, action: 'CREATE', newState: v, userId });
@@ -22,9 +22,9 @@ export const getVehicles = async () => {
   const res = await query(`
     SELECT o.*, 
     CASE 
-      WHEN o.is_sold_removed THEN 'SOLD_REMOVED'
-      WHEN EXISTS (SELECT 1 FROM trips t WHERE t.own_fleet_vehicle_id = o.id AND t.trip_status NOT IN ('COMPLETED', 'SETTLED', 'CANCELLED')) THEN 'IN_TRIP'
-      WHEN o.is_under_maintenance THEN 'UNDER_MAINTENANCE'
+      WHEN o.manual_state = 'SOLD_REMOVED' THEN 'SOLD_REMOVED'
+      WHEN EXISTS (SELECT 1 FROM trips t WHERE t.own_fleet_vehicle_id = o.id AND t.status NOT IN ('COMPLETED', 'SETTLED', 'CANCELLED')) THEN 'IN_TRIP'
+      WHEN o.manual_state = 'UNDER_MAINTENANCE' THEN 'UNDER_MAINTENANCE'
       ELSE 'AVAILABLE'
     END as status
     FROM own_fleet_vehicles o
@@ -37,9 +37,9 @@ export const getVehicleById = async (id: string) => {
   const res = await query(`
     SELECT o.*, 
     CASE 
-      WHEN o.is_sold_removed THEN 'SOLD_REMOVED'
-      WHEN EXISTS (SELECT 1 FROM trips t WHERE t.own_fleet_vehicle_id = o.id AND t.trip_status NOT IN ('COMPLETED', 'SETTLED', 'CANCELLED')) THEN 'IN_TRIP'
-      WHEN o.is_under_maintenance THEN 'UNDER_MAINTENANCE'
+      WHEN o.manual_state = 'SOLD_REMOVED' THEN 'SOLD_REMOVED'
+      WHEN EXISTS (SELECT 1 FROM trips t WHERE t.own_fleet_vehicle_id = o.id AND t.status NOT IN ('COMPLETED', 'SETTLED', 'CANCELLED')) THEN 'IN_TRIP'
+      WHEN o.manual_state = 'UNDER_MAINTENANCE' THEN 'UNDER_MAINTENANCE'
       ELSE 'AVAILABLE'
     END as status
     FROM own_fleet_vehicles o WHERE o.id = $1`, [id]);
@@ -62,18 +62,19 @@ export const updateVehicle = async (id: string, data: any, userId: string) => {
   return updated;
 };
 
-export const setMaintenance = async (id: string, isMaintenance: boolean, userId: string) => {
+export const setMaintenance = async (id: string, isMaintenance: boolean, userId: string, notes?: string) => {
   const v = await getVehicleById(id);
   if (v.status === 'IN_TRIP' && isMaintenance) {
     throw new AppError('BUSINESS_RULE_VIOLATION', 'Cannot mark under maintenance while in active trip.', 422);
   }
-  const res = await query(`UPDATE own_fleet_vehicles SET is_under_maintenance = $2, updated_at = NOW() WHERE id = $1 RETURNING *`, [id, isMaintenance]);
+  const nextState = isMaintenance ? 'UNDER_MAINTENANCE' : null;
+  const res = await query(`UPDATE own_fleet_vehicles SET manual_state = $2, maintenance_notes = $3, updated_at = NOW() WHERE id = $1 RETURNING *`, [id, nextState, notes || null]);
   await createAudit({ entityType: 'OWN_FLEET_VEHICLE', entityId: id, action: 'MAINTENANCE_CHANGE', newState: res.rows[0], userId });
   return res.rows[0];
 };
 
 export const setSold = async (id: string, soldData: any, userId: string) => {
-  const res = await query(`UPDATE own_fleet_vehicles SET is_sold_removed = true, sold_removed_reason = $2, sold_removed_date = $3, updated_at = NOW() WHERE id = $1 RETURNING *`, [id, soldData.reason, soldData.date]);
+  const res = await query(`UPDATE own_fleet_vehicles SET manual_state = 'SOLD_REMOVED', maintenance_notes = $2, updated_at = NOW() WHERE id = $1 RETURNING *`, [id, soldData.reason || null]);
   await createAudit({ entityType: 'OWN_FLEET_VEHICLE', entityId: id, action: 'SOLD_REMOVED', newState: res.rows[0], userId });
   return res.rows[0];
 };

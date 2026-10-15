@@ -13,17 +13,46 @@ export const createTrip = async (data: any, userId: string) => {
       if (!data.own_fleet_vehicle_id) throw new AppError('BUSINESS_RULE_VIOLATION', 'Own fleet trip requires own fleet vehicle.', 422);
     }
 
+    const tripNumber = data.trip_number || `TRP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const origin = data.destinations && data.destinations[0]
+      ? (data.destinations[0].from_location || data.destinations[0].origin)
+      : (data.origin || null);
+    const destination = data.destinations && data.destinations.length > 0
+      ? (data.destinations[data.destinations.length - 1].to_location || data.destinations[data.destinations.length - 1].destination)
+      : (data.destination || null);
+
     const tSql = `
-      INSERT INTO trips (trip_type, vehicle_relationship, party_id, vehicle_owner_id, market_vehicle_id, own_fleet_vehicle_id, driver_name, driver_mobile, trip_date)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
+      INSERT INTO trips (
+        trip_number, trip_type, vehicle_relationship, party_id, vehicle_owner_id, 
+        market_vehicle_id, own_fleet_vehicle_id, driver_mobile_number, trip_date, 
+        status, origin, destination, created_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *
     `;
-    const tParams = [data.trip_type, data.vehicle_relationship, data.party_id, data.vehicle_owner_id || null, data.market_vehicle_id || null, data.own_fleet_vehicle_id || null, data.driver_name, data.driver_mobile, data.trip_date];
+    const tParams = [
+      tripNumber,
+      data.trip_type,
+      data.vehicle_relationship,
+      data.party_id,
+      data.vehicle_owner_id || null,
+      data.market_vehicle_id || null,
+      data.own_fleet_vehicle_id || null,
+      data.driver_mobile_number || data.driver_mobile || null,
+      data.trip_date,
+      data.status || 'CREATED',
+      origin,
+      destination,
+      userId
+    ];
     const res = await client.query(tSql, tParams);
     const trip = res.rows[0];
 
     let destOrder = 1;
-    for (const d of data.destinations) {
-      await client.query('INSERT INTO trip_destinations (trip_id, destination_order, origin, destination) VALUES ($1, $2, $3, $4)', [trip.id, destOrder++, d.origin, d.destination]);
+    for (const d of (data.destinations || [])) {
+      await client.query(
+        'INSERT INTO trip_destinations (trip_id, sequence_no, from_location, to_location) VALUES ($1, $2, $3, $4)',
+        [trip.id, destOrder++, d.from_location || d.origin, d.to_location || d.destination]
+      );
     }
 
     // Initialize financials
@@ -33,7 +62,7 @@ export const createTrip = async (data: any, userId: string) => {
     }
 
     // Initialize POD
-    await client.query('INSERT INTO trip_pods (trip_id) VALUES ($1)', [trip.id]);
+    await client.query("INSERT INTO trip_pods (trip_id, pod_status) VALUES ($1, 'PENDING')", [trip.id]);
 
     await createAudit({ entityType: 'TRIP', entityId: trip.id, action: 'CREATE', newState: trip, userId }, client);
     return trip;
@@ -198,7 +227,7 @@ export const updateCoreTrip = async (id: string, data: any, userId: string) => {
 };
 
 export const updateStatus = async (id: string, status: string, userId: string) => {
-  const res = await query('UPDATE trips SET trip_status = $2, updated_at = NOW() WHERE id = $1 RETURNING *', [id, status]);
+  const res = await query('UPDATE trips SET status = $2, updated_at = NOW() WHERE id = $1 RETURNING *', [id, status]);
   if (res.rows.length === 0) throw new AppError('NOT_FOUND', 'Trip not found', 404);
   await createAudit({ entityType: 'TRIP', entityId: id, action: 'STATUS_UPDATE', newState: res.rows[0], userId });
   return res.rows[0];

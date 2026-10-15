@@ -19,7 +19,8 @@ export const upload = async (req: Request, res: Response, next: NextFunction) =>
       name: req.body.file_name || 'pod.pdf',
       path: '/uploads/pod.pdf',
       mime: req.body.mime_type || 'application/pdf',
-      size: req.body.file_size_bytes || 1024
+      size: req.body.file_size_bytes || 1024,
+      courier_docket_number: req.body.courier_docket_number
     };
     res.status(201).json({ success: true, data: await service.uploadPOD(req.body.trip_id, mockFile, req.user!.id) }); 
   } 

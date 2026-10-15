@@ -92,8 +92,9 @@ export const generateBill = async (data: any, userId: string) => {
       );
     }
 
+    const docRef = `bills/${bill.id}/v1.pdf`;
     const vQuery =
-      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, 1, 'Version 1', 'ACTIVE', $2, $3, $4, $5) RETURNING *";
+      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, resolved_dynamic_fields, document_reference, created_by) VALUES ($1, 1, 'Version 1', 'ACTIVE', $2, $3, $4, $5, $6) RETURNING *";
 
     let templateIdToUse = data.template_id || null;
     const pbcRes = await client.query('SELECT billing_mode, default_template_id FROM party_billing_configs WHERE party_id = $1', [data.party_id]);
@@ -144,6 +145,7 @@ export const generateBill = async (data: any, userId: string) => {
       templateIdToUse,
       snapshot,
       resolvedFields || {},
+      docRef,
       userId
     ]);
 
@@ -658,8 +660,9 @@ export const createVersion = async (id: string, data: any, userId: string) => {
       resolvedFields = resolveDynamicFields(bill, partyRes.rows[0], versionTrips, finalItems);
     }
 
+    const docRef = `bills/${id}/v${nextVersion}.pdf`;
     const vQuery =
-      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, header_snapshot, totals_snapshot, resolved_dynamic_fields, created_by) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, $6, $7, $8, $9) RETURNING *";
+      "INSERT INTO bill_versions (bill_id, version_number, version_label, version_status, template_id, template_snapshot, header_snapshot, totals_snapshot, resolved_dynamic_fields, document_reference, created_by) VALUES ($1, $2, $3, 'ACTIVE', $4, $5, $6, $7, $8, $9, $10) RETURNING *";
     const vRes = await client.query(vQuery, [
       bill.id,
       nextVersion,
@@ -669,6 +672,7 @@ export const createVersion = async (id: string, data: any, userId: string) => {
       headerSnapshot,
       totalsSnapshot,
       resolvedFields || {},
+      docRef,
       userId
     ]);
 

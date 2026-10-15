@@ -7,14 +7,11 @@ import { PoolClient } from 'pg';
 export const createOwner = async (data: any, userId: string, client?: PoolClient) => {
   const sql = `
     INSERT INTO vehicle_owners 
-    (name, mobile_number, address, city, state, pan_number, bank_details)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    (name, mobile_number)
+    VALUES ($1, $2)
     RETURNING *
   `;
-  const params = [
-    data.name, data.mobile_number, data.address, data.city, 
-    data.state, data.pan_number, data.bank_details
-  ];
+  const params = [data.name, data.mobile_number];
   
   const q = client ? client.query.bind(client) : query;
   const res = await q(sql, params);

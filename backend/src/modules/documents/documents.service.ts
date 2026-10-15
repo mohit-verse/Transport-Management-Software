@@ -2,6 +2,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { config } from '../../config';
 import { query } from '../../db';
 import { withTransaction } from '../../db/transaction';
 import { AppError } from '../../errors/AppError';
@@ -11,7 +12,7 @@ import { storageService } from '../../services/storage.service';
 const saveMockPhysicalFile = (originalName: string): string => {
   const ext = path.extname(originalName) || '.pdf';
   const key = `documents/${crypto.randomUUID()}${ext}`;
-  const baseDir = path.join(__dirname, '../../../../storage/development');
+  const baseDir = config.storage.dir;
   const fullPath = path.join(baseDir, key);
   const dir = path.dirname(fullPath);
   if (!fs.existsSync(dir)) {
@@ -39,7 +40,11 @@ export const uploadPOD = async (tripId: string, fileInfo: any, userId: string) =
       await client.query(`INSERT INTO document_links (document_id, entity_type, entity_id) VALUES ($1, 'TRIP', $2)`, [doc.id, tripId]);
 
       // Update trip POD status
-      await client.query(`UPDATE trip_pods SET pod_status = 'RECEIVED', pod_received_at = NOW(), updated_at = NOW() WHERE trip_id = $1`, [tripId]);
+      if (fileInfo.courier_docket_number) {
+        await client.query(`UPDATE trip_pods SET pod_status = 'RECEIVED', docket_number = $2, pod_received_at = NOW(), updated_at = NOW() WHERE trip_id = $1`, [tripId, fileInfo.courier_docket_number]);
+      } else {
+        await client.query(`UPDATE trip_pods SET pod_status = 'RECEIVED', pod_received_at = NOW(), updated_at = NOW() WHERE trip_id = $1`, [tripId]);
+      }
 
       await createAudit({ entityType: 'DOCUMENT', entityId: doc.id, action: 'UPLOAD', newState: doc, userId }, client);
       return doc;

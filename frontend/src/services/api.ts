@@ -1,7 +1,20 @@
 import axios from 'axios';
 
+export const resolveBaseUrl = (viteApiUrl?: string, isDev: boolean = import.meta.env.DEV): string => {
+  const envUrl = viteApiUrl !== undefined ? viteApiUrl : import.meta.env.VITE_API_URL;
+  if (envUrl !== undefined) {
+    const trimmed = envUrl.trim();
+    if (trimmed === '' || trimmed === '/') {
+      return '';
+    }
+    const cleanUrl = trimmed.replace(/\/+$/, '');
+    return cleanUrl.endsWith('/api') ? cleanUrl.slice(0, -4) : cleanUrl;
+  }
+  return isDev ? 'http://localhost:3000' : '';
+};
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000',
+  baseURL: resolveBaseUrl(),
 });
 
 // Request interceptor to attach JWT token

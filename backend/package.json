@@ -2,8 +2,14 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "seed:owner": "node dist/scripts/seed-owner.js",
+    "seed:owner:dev": "ts-node src/scripts/seed-owner.ts",
+    "migrate": "node dist/scripts/migrate.js",
+    "migrate:dev": "ts-node src/scripts/migrate.ts",
     "test": "jest"
   },
   "keywords": [],

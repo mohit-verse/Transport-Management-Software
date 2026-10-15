@@ -117,41 +117,45 @@ export const LoginPage: React.FC = () => {
         </Button>
       </form>
 
-      <div className="relative my-4">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300" />
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">Or development quick login</span>
-        </div>
-      </div>
+      {import.meta.env.DEV && (
+        <>
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or development quick login</span>
+            </div>
+          </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => handleQuickLogin('OWNER')}
-        >
-          Owner
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => handleQuickLogin('STAFF')}
-        >
-          Staff
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => handleQuickLogin('CA')}
-        >
-          CA
-        </Button>
-      </div>
+          <div className="grid grid-cols-3 gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => handleQuickLogin('OWNER')}
+            >
+              Owner
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => handleQuickLogin('STAFF')}
+            >
+              Staff
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => handleQuickLogin('CA')}
+            >
+              CA
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

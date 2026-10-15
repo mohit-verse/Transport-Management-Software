@@ -8,11 +8,25 @@ import { errorHandler } from './errors/errorHandler';
 import { authRouter } from './modules/auth/auth.routes';
 import { healthRouter } from './modules/health/health.routes';
 
+import { config } from './config';
+
 export const app = express();
 
 // Security middleware
 app.use(helmet());
-app.use(cors());
+
+const allowedOrigins = config.corsOrigin === '*'
+  ? '*'
+  : config.corsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+  })
+);
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 

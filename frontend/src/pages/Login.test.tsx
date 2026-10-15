@@ -5,7 +5,14 @@ import { LoginPage } from './Login';
 import * as api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
-vi.mock('../services/api');
+vi.mock('../services/api', async () => {
+  const actual = await vi.importActual('../services/api');
+  return {
+    ...actual,
+    login: vi.fn(),
+    getMe: vi.fn(),
+  };
+});
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -22,7 +29,7 @@ describe('LoginPage', () => {
     useAuthStore.setState({ user: null, token: null });
   });
 
-  it('renders login form inputs and dev quick buttons', () => {
+  it('renders login form inputs and dev quick buttons in development mode', () => {
     render(
       <MemoryRouter>
         <LoginPage />
@@ -35,6 +42,31 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: /^Owner$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Staff$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^CA$/i })).toBeInTheDocument();
+  });
+
+  it('isolates dev quick buttons when import.meta.env.DEV is false', () => {
+    const originalDev = import.meta.env.DEV;
+    try {
+      // Simulate production environment
+      (import.meta.env as any).DEV = false;
+
+      render(
+        <MemoryRouter>
+          <LoginPage />
+        </MemoryRouter>
+      );
+
+      expect(screen.queryByText(/Or development quick login/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Owner$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Staff$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^CA$/i })).not.toBeInTheDocument();
+      // Regular login must still be present
+      expect(screen.getByLabelText(/Mobile Number/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Password/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Sign In$/i })).toBeInTheDocument();
+    } finally {
+      (import.meta.env as any).DEV = originalDev;
+    }
   });
 
   it('validates mobile number input before submitting', async () => {
@@ -108,5 +140,24 @@ describe('LoginPage', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
     expect(useAuthStore.getState().user?.role).toBe('CA');
+  });
+
+  describe('resolveBaseUrl helper', () => {
+    it('returns empty string when url is empty or root', () => {
+      expect(api.resolveBaseUrl('', false)).toBe('');
+      expect(api.resolveBaseUrl('  ', false)).toBe('');
+      expect(api.resolveBaseUrl('/', false)).toBe('');
+    });
+
+    it('strips duplicate /api suffix', () => {
+      expect(api.resolveBaseUrl('https://api.ssrl.in/api', false)).toBe('https://api.ssrl.in');
+      expect(api.resolveBaseUrl('https://api.ssrl.in/api/', false)).toBe('https://api.ssrl.in');
+      expect(api.resolveBaseUrl('https://api.ssrl.in', false)).toBe('https://api.ssrl.in');
+    });
+
+    it('defaults to localhost in dev and empty string in production when env is undefined', () => {
+      expect(api.resolveBaseUrl(undefined, true)).toBe('http://localhost:3000');
+      expect(api.resolveBaseUrl(undefined, false)).toBe('');
+    });
   });
 });

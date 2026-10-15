@@ -32,6 +32,8 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
   let stagingPool: Pool;
   let serverProcess: ChildProcess | null = null;
   let restartedProcess: ChildProcess | null = null;
+  const spawnedProcs = new Set<ChildProcess>();
+
   let ownerToken: string = '';
   let staffToken: string = '';
   let caToken: string = '';
@@ -46,36 +48,92 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
   let financialYearId: string = '';
   let numberingSeriesId: string = '';
 
-  const killProc = (proc: ChildProcess | null) => {
-    if (!proc) return;
-    try {
-      if (process.platform === 'win32' && proc.pid) {
-        execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: 'ignore' });
-      } else {
-        proc.kill('SIGKILL');
+  const stopProcessGracefully = async (
+    proc: ChildProcess | null,
+    timeoutMs = 5000
+  ): Promise<{ exited: boolean; code: number | null; signal: string | null }> => {
+    if (!proc || proc.exitCode !== null || proc.killed) {
+      if (proc) spawnedProcs.delete(proc);
+      return { exited: true, code: proc?.exitCode ?? null, signal: proc?.signalCode ?? null };
+    }
+
+    const pid = proc.pid;
+    return new Promise((resolve) => {
+      let finished = false;
+      const handleExit = (code: number | null, signal: string | null) => {
+        if (!finished) {
+          finished = true;
+          spawnedProcs.delete(proc);
+          resolve({ exited: true, code, signal });
+        }
+      };
+
+      proc.once('exit', handleExit);
+      proc.once('close', handleExit);
+
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // Process might already be dead
       }
-    } catch {}
+
+      const timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          try {
+            if (process.platform === 'win32' && pid) {
+              execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+            } else {
+              proc.kill('SIGKILL');
+            }
+          } catch {}
+          spawnedProcs.delete(proc);
+          resolve({ exited: false, code: null, signal: 'FORCE_TERMINATED' });
+        }
+      }, timeoutMs);
+      timer.unref();
+    });
   };
 
-  const freePort = (port: number) => {
+  const verifyPortFree = (port: number) => {
     try {
       if (process.platform === 'win32') {
         const out = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8' });
         for (const line of out.trim().split('\n')) {
           const parts = line.trim().split(/\s+/);
+          const state = parts[parts.length - 2];
           const pid = parts[parts.length - 1];
-          if (pid && /^\d+$/.test(pid) && pid !== '0' && pid !== String(process.pid)) {
-            execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+          if (state === 'LISTENING' && pid && /^\d+$/.test(pid) && pid !== '0' && pid !== String(process.pid)) {
+            const cmd = execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId = ${pid}\\").CommandLine"`, { encoding: 'utf8' });
+            if (cmd.includes('dist/server.js')) {
+              // Stale SSRL instance from previous run, terminate it
+              execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+            } else {
+              throw new Error(`Port ${port} is occupied by an unrelated service (PID ${pid}: ${cmd.trim()}). Aborting staging test to protect unrelated service.`);
+            }
           }
         }
       }
-    } catch {}
+    } catch (err: any) {
+      if (err.message && err.message.includes('unrelated service')) throw err;
+    }
+  };
+
+  const stagingFetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Connection')) {
+      headers.set('Connection', 'close');
+    }
+    return fetch(url, {
+      ...init,
+      headers,
+    });
   };
 
   const waitForServer = async (retries = 30, delayMs = 500): Promise<boolean> => {
     for (let i = 0; i < retries; i++) {
       try {
-        const res = await fetch(`${STAGING_URL}/api/health`);
+        const res = await stagingFetch(`${STAGING_URL}/api/health`);
         if (res.ok) return true;
       } catch {
         // Wait and retry
@@ -86,8 +144,8 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
   };
 
   beforeAll(async () => {
-    // 0. Ensure port 3001 is clean from any previous aborted runs
-    freePort(STAGING_PORT);
+    // 0. Verify port 3001 is clean without terminating unrelated processes
+    verifyPortFree(STAGING_PORT);
 
     // 1. Ensure staging storage directory exists and clean previous artifacts
     if (!fs.existsSync(STAGING_STORAGE_DIR)) {
@@ -146,11 +204,12 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
   });
 
   afterAll(async () => {
-    killProc(serverProcess);
-    killProc(restartedProcess);
+    for (const proc of spawnedProcs) {
+      await stopProcessGracefully(proc, 3000);
+    }
+    spawnedProcs.clear();
     serverProcess = null;
     restartedProcess = null;
-    freePort(STAGING_PORT);
     if (stagingPool) {
       await stagingPool.end();
     }
@@ -247,6 +306,50 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
         '002_add_document_expiry.sql',
       ]);
     });
+
+    it('verifies trip_pods canonical schema and rejects nonexistent pod_details references', async () => {
+      // 1. Confirm trip_pods exists with exact canonical columns
+      const colsRes = await stagingPool.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'trip_pods'
+        ORDER BY ordinal_position;
+      `);
+      const colNames = colsRes.rows.map((r: any) => r.column_name);
+      expect(colNames).toEqual([
+        'id',
+        'trip_id',
+        'pod_status',
+        'docket_number',
+        'courier_partner',
+        'pod_received_at',
+        'sent_to_party_at',
+        'notes',
+        'created_at',
+        'updated_at',
+      ]);
+
+      // 2. Confirm nonexistent pod_details table does NOT exist
+      const nonExistentRes = await stagingPool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'pod_details'
+        ) as exists;
+      `);
+      expect(nonExistentRes.rows[0].exists).toBe(false);
+
+      // 3. Confirm querying nonexistent pod_details throws relation does not exist error
+      await expect(stagingPool.query('SELECT * FROM pod_details')).rejects.toThrow(/relation "pod_details" does not exist/);
+
+      // 4. Confirm inserting invalid column into trip_pods throws column does not exist error
+      await expect(
+        stagingPool.query('INSERT INTO trip_pods (trip_id, pod_status, nonexistent_col) VALUES ($1, $2, $3)', [
+          '00000000-0000-0000-0000-000000000000',
+          'PENDING',
+          'test',
+        ])
+      ).rejects.toThrow(/column "nonexistent_col" of relation "trip_pods" does not exist/);
+    });
   });
 
   describe('3. Staging Live HTTP Service Probing (dist/server.js on Port 3001)', () => {
@@ -266,13 +369,14 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
         },
         stdio: 'ignore',
       });
+      spawnedProcs.add(serverProcess);
 
       const started = await waitForServer();
       expect(started).toBe(true);
     });
 
     it('responds to GET /api/health with HTTP 200 and healthy DB connection', async () => {
-      const res = await fetch(`${STAGING_URL}/api/health`);
+      const res = await stagingFetch(`${STAGING_URL}/api/health`);
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.success).toBe(true);
@@ -281,7 +385,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('enforces Helmet security headers (HSTS, nosniff, frame-ancestors)', async () => {
-      const res = await fetch(`${STAGING_URL}/api/health`);
+      const res = await stagingFetch(`${STAGING_URL}/api/health`);
       expect(res.headers.get('strict-transport-security')).toContain('max-age=31536000');
       expect(res.headers.get('x-content-type-options')).toBe('nosniff');
       expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN');
@@ -289,7 +393,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
 
     it('enforces strict CORS rules for allowed vs unauthorized origins', async () => {
       // 1. Allowed origin preflight
-      const allowedRes = await fetch(`${STAGING_URL}/api/health`, {
+      const allowedRes = await stagingFetch(`${STAGING_URL}/api/health`, {
         method: 'OPTIONS',
         headers: {
           'Origin': 'http://localhost:5173',
@@ -299,7 +403,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       expect(allowedRes.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
 
       // 2. Disallowed origin preflight
-      const disallowedRes = await fetch(`${STAGING_URL}/api/health`, {
+      const disallowedRes = await stagingFetch(`${STAGING_URL}/api/health`, {
         method: 'OPTIONS',
         headers: {
           'Origin': 'http://unauthorized-attacker-site.com',
@@ -312,7 +416,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
 
   describe('4. Staging Authentication & Multi-Role RBAC Authorization Matrix', () => {
     it('authenticates Owner user and returns valid Bearer token', async () => {
-      const res = await fetch(`${STAGING_URL}/api/auth/login`, {
+      const res = await stagingFetch(`${STAGING_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -329,7 +433,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
 
     it('authenticates Staff and CA users and returns role-scoped tokens', async () => {
       // Staff login
-      const staffRes = await fetch(`${STAGING_URL}/api/auth/login`, {
+      const staffRes = await stagingFetch(`${STAGING_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -342,7 +446,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       staffToken = staffBody.data.token;
 
       // CA login
-      const caRes = await fetch(`${STAGING_URL}/api/auth/login`, {
+      const caRes = await stagingFetch(`${STAGING_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -356,14 +460,14 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('rejects unauthenticated requests to protected API endpoints with HTTP 401', async () => {
-      const res = await fetch(`${STAGING_URL}/api/trips`);
+      const res = await stagingFetch(`${STAGING_URL}/api/trips`);
       expect(res.status).toBe(401);
       const body = await res.json();
       expect(body.error.code).toBe('UNAUTHENTICATED');
     });
 
     it('rejects CA mutation requests (POST /api/trips) with HTTP 403 Forbidden', async () => {
-      const res = await fetch(`${STAGING_URL}/api/trips`, {
+      const res = await stagingFetch(`${STAGING_URL}/api/trips`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -383,7 +487,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('permits CA read access to financial report endpoints with HTTP 200', async () => {
-      const res = await fetch(`${STAGING_URL}/api/reports/financial-summary`, {
+      const res = await stagingFetch(`${STAGING_URL}/api/reports/financial-summary`, {
         headers: { 'Authorization': `Bearer ${caToken}` },
       });
       expect(res.status).toBe(200);
@@ -395,7 +499,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
   describe('5. Synthetic Operational Lifecycle Execution on Staging', () => {
     it('creates Party, Vehicle Owner, Market Vehicle, and Own Fleet Vehicle', async () => {
       // 1. Create Party
-      const partyRes = await fetch(`${STAGING_URL}/api/parties`, {
+      const partyRes = await stagingFetch(`${STAGING_URL}/api/parties`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -416,7 +520,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       createdPartyId = partyBody.data.id;
 
       // 2. Create Vehicle Owner
-      const ownerRes = await fetch(`${STAGING_URL}/api/vehicle-owners`, {
+      const ownerRes = await stagingFetch(`${STAGING_URL}/api/vehicle-owners`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -433,7 +537,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       createdOwnerId = ownerBody.data.id;
 
       // 3. Create Market Vehicle
-      const mvRes = await fetch(`${STAGING_URL}/api/market-vehicles`, {
+      const mvRes = await stagingFetch(`${STAGING_URL}/api/market-vehicles`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -449,7 +553,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       createdVehicleId = mvBody.data.id;
 
       // 4. Create Own Fleet Vehicle
-      const ofRes = await fetch(`${STAGING_URL}/api/own-fleet`, {
+      const ofRes = await stagingFetch(`${STAGING_URL}/api/own-fleet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -466,7 +570,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
 
     it('creates Trip with destinations and updates financial obligations', async () => {
       // 1. Create Trip as Staff
-      const tripRes = await fetch(`${STAGING_URL}/api/trips`, {
+      const tripRes = await stagingFetch(`${STAGING_URL}/api/trips`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -491,7 +595,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       createdTripId = tripBody.data.id;
 
       // 2. Update financials
-      const finRes = await fetch(`${STAGING_URL}/api/trips/${createdTripId}/financials`, {
+      const finRes = await stagingFetch(`${STAGING_URL}/api/trips/${createdTripId}/financials`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -506,7 +610,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       expect(finRes.status).toBe(200);
 
       // 3. Mark trip as COMPLETED so it is eligible for billing
-      const statusRes = await fetch(`${STAGING_URL}/api/trips/${createdTripId}/status`, {
+      const statusRes = await stagingFetch(`${STAGING_URL}/api/trips/${createdTripId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -518,7 +622,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('uploads POD document, writes to storage/staging/documents, and streams via secure file API', async () => {
-      const uploadRes = await fetch(`${STAGING_URL}/api/documents/pod`, {
+      const uploadRes = await stagingFetch(`${STAGING_URL}/api/documents/pod`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -542,7 +646,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       expect(fs.existsSync(physicalPath)).toBe(true);
 
       // Stream file back via GET /api/documents/:id/file
-      const streamRes = await fetch(`${STAGING_URL}/api/documents/${createdDocumentId}/file`, {
+      const streamRes = await stagingFetch(`${STAGING_URL}/api/documents/${createdDocumentId}/file`, {
         headers: { 'Authorization': `Bearer ${ownerToken}` },
       });
       expect(streamRes.status).toBe(200);
@@ -552,7 +656,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('records Incoming Payment with complete allocation to Trip and excess credit generation', async () => {
-      const payRes = await fetch(`${STAGING_URL}/api/payments`, {
+      const payRes = await stagingFetch(`${STAGING_URL}/api/payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -595,7 +699,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('prohibits Staff from reversing Payment with HTTP 403 Forbidden', async () => {
-      const revRes = await fetch(`${STAGING_URL}/api/payments/${createdPaymentId}/reverse`, {
+      const revRes = await stagingFetch(`${STAGING_URL}/api/payments/${createdPaymentId}/reverse`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -627,7 +731,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       numberingSeriesId = seriesRes.rows[0].id;
 
       // 2. Generate Bill as Owner
-      const billRes = await fetch(`${STAGING_URL}/api/bills`, {
+      const billRes = await stagingFetch(`${STAGING_URL}/api/bills`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -654,7 +758,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       expect(billObj.bill_number).toBe('SRL/26-27/1');
 
       // 3. Request Bill PDF to trigger PDF storage generation
-      const pdfRes = await fetch(`${STAGING_URL}/api/bills/${createdBillId}/pdf`, {
+      const pdfRes = await stagingFetch(`${STAGING_URL}/api/bills/${createdBillId}/pdf`, {
         headers: { 'Authorization': `Bearer ${ownerToken}` },
       });
       expect(pdfRes.status).toBe(200);
@@ -666,7 +770,7 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
     });
 
     it('reflects authoritative payment-based Net P&L in financial reports', async () => {
-      const repRes = await fetch(`${STAGING_URL}/api/reports/financial-summary`, {
+      const repRes = await stagingFetch(`${STAGING_URL}/api/reports/financial-summary`, {
         headers: { 'Authorization': `Bearer ${ownerToken}` },
       });
       expect(repRes.status).toBe(200);
@@ -691,40 +795,161 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
       expect(audit.healthyCount).toBeGreaterThanOrEqual(1);
     });
 
-    it('creates binary pg_dump backup of staging database and verifies storage SHA-256 integrity', async () => {
-      const backupDumpPath = path.join(os.tmpdir(), 'staging_db_backup.dump');
-      if (fs.existsSync(backupDumpPath)) {
-        fs.unlinkSync(backupDumpPath);
+    it('creates binary pg_dump backup of staging database, restores into disposable database with pg_restore --exit-on-error, and validates schema, records, invariants, and storage references', async () => {
+      const backupDumpPath = path.join(os.tmpdir(), `staging_db_backup_${Date.now()}.dump`);
+      const RESTORE_DB_NAME = 'ssrl_staging_restore_test_db';
+      const adminPool = new Pool({
+        connectionString: `postgresql://${PG_USER}@${PG_HOST}:${PG_PORT}/postgres`,
+      });
+
+      try {
+        if (fs.existsSync(backupDumpPath)) {
+          fs.unlinkSync(backupDumpPath);
+        }
+
+        // 1. Execute pg_dump -Fc
+        execSync(
+          `pg_dump -Fc -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USER} -d ${STAGING_DB_NAME} -f "${backupDumpPath}"`,
+          { stdio: 'pipe' }
+        );
+        expect(fs.existsSync(backupDumpPath)).toBe(true);
+        const dumpStats = fs.statSync(backupDumpPath);
+        expect(dumpStats.size).toBeGreaterThan(10000);
+
+        // 2. Verify SHA-256 checksums of storage files
+        const podDir = path.join(STAGING_STORAGE_DIR, 'documents');
+        const podFiles = fs.readdirSync(podDir);
+        expect(podFiles.length).toBeGreaterThan(0);
+        const hash1 = crypto.createHash('sha256').update(fs.readFileSync(path.join(podDir, podFiles[0]))).digest('hex');
+        const hash2 = crypto.createHash('sha256').update(fs.readFileSync(path.join(podDir, podFiles[0]))).digest('hex');
+        expect(hash1).toBe(hash2);
+
+        // 3. Prepare clean disposable database
+        await adminPool.query(`DROP DATABASE IF EXISTS ${RESTORE_DB_NAME} WITH (FORCE);`);
+        await adminPool.query(`CREATE DATABASE ${RESTORE_DB_NAME};`);
+
+        // 4. Restore backup using pg_restore --exit-on-error
+        execSync(
+          `pg_restore --exit-on-error -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USER} -d ${RESTORE_DB_NAME} "${backupDumpPath}"`,
+          { stdio: 'pipe' }
+        );
+
+        // 5. Connect to restored database and verify schema completeness
+        const restorePool = new Pool({
+          connectionString: `postgresql://${PG_USER}@${PG_HOST}:${PG_PORT}/${RESTORE_DB_NAME}`,
+        });
+
+        try {
+          // Schema verification: 40 canonical tables
+          const tablesRes = await restorePool.query(`
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = ANY($1)
+          `, [CANONICAL_TABLES_001]);
+          expect(tablesRes.rows.length).toBe(40);
+
+          // Domain functions verification: 27 domain functions
+          const funcRes = await restorePool.query(`
+            SELECT p.proname 
+            FROM pg_proc p 
+            JOIN pg_namespace n ON p.pronamespace = n.oid 
+            WHERE n.nspname = 'public' AND p.proname = ANY($1)
+          `, [CANONICAL_FUNCTIONS_001]);
+          expect(funcRes.rows.length).toBe(27);
+
+          // Triggers verification: 63 triggers
+          const trigRes = await restorePool.query(`
+            SELECT t.tgname
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND NOT t.tgisinternal;
+          `);
+          expect(trigRes.rows.length).toBe(63);
+
+          // Migration tracking verification
+          const migRes = await restorePool.query('SELECT id FROM schema_migrations ORDER BY applied_at ASC');
+          expect(migRes.rows.map((r: any) => r.id)).toEqual([
+            '001_initial_schema.sql',
+            '002_add_document_expiry.sql',
+          ]);
+
+          // Dynamic field definitions verification
+          const dynRes = await restorePool.query('SELECT count(*) as count FROM dynamic_field_definitions');
+          expect(parseInt(dynRes.rows[0].count, 10)).toBe(CANONICAL_DYNAMIC_FIELDS_COUNT);
+
+          // Operational records verification
+          const partyCheck = await restorePool.query('SELECT id, name, gstin FROM parties WHERE id = $1', [createdPartyId]);
+          expect(partyCheck.rows.length).toBe(1);
+          expect(partyCheck.rows[0].name).toBe('Staging Minerals & Logistics Ltd');
+
+          const ownerCheck = await restorePool.query('SELECT id, name FROM vehicle_owners WHERE id = $1', [createdOwnerId]);
+          expect(ownerCheck.rows.length).toBe(1);
+          expect(ownerCheck.rows[0].name).toBe('Staging Truck Operator');
+
+          const mvCheck = await restorePool.query('SELECT id, vehicle_number FROM market_vehicles WHERE id = $1', [createdVehicleId]);
+          expect(mvCheck.rows.length).toBe(1);
+          expect(mvCheck.rows[0].vehicle_number).toBe('RJ-14-ST-1234');
+
+          const tripCheck = await restorePool.query('SELECT id, status FROM trips WHERE id = $1', [createdTripId]);
+          expect(tripCheck.rows.length).toBe(1);
+          expect(tripCheck.rows[0].status).toBe('COMPLETED');
+
+          const billCheck = await restorePool.query('SELECT id, bill_number, bill_status FROM bills WHERE id = $1', [createdBillId]);
+          expect(billCheck.rows.length).toBe(1);
+          expect(billCheck.rows[0].bill_number).toBe('SRL/26-27/1');
+
+          // Financial Invariants Verification
+          // 1. Payment-based Net P&L: Active Incoming - Active Outgoing = 70,000
+          const pnlRes = await restorePool.query(`
+            SELECT 
+              COALESCE(SUM(CASE WHEN payment_type = 'INCOMING' THEN amount ELSE 0 END), 0) -
+              COALESCE(SUM(CASE WHEN payment_type = 'OUTGOING' THEN amount ELSE 0 END), 0) as net_pnl
+            FROM payments
+            WHERE payment_status = 'ACTIVE';
+          `);
+          expect(parseFloat(pnlRes.rows[0].net_pnl)).toBe(70000);
+
+          // 2. Party Credits: 20,000 generated
+          const credRes = await restorePool.query(`
+            SELECT pa.allocation_amount
+            FROM party_credits pc
+            JOIN payment_allocations pa ON pa.id = pc.credit_allocation_id
+            WHERE pc.party_id = $1
+          `, [createdPartyId]);
+          expect(credRes.rows.length).toBe(1);
+          expect(parseFloat(credRes.rows[0].allocation_amount)).toBe(20000);
+
+          // Physical storage references verification
+          const docRes = await restorePool.query('SELECT storage_key FROM documents WHERE id = $1', [createdDocumentId]);
+          expect(docRes.rows.length).toBe(1);
+          const docPath = path.join(STAGING_STORAGE_DIR, docRes.rows[0].storage_key);
+          expect(fs.existsSync(docPath)).toBe(true);
+
+          const billPdfPath = path.join(STAGING_STORAGE_DIR, 'bills', createdBillId, 'v1.pdf');
+          expect(fs.existsSync(billPdfPath)).toBe(true);
+        } finally {
+          await restorePool.end();
+        }
+      } finally {
+        // Drop disposable database and clean backup dump
+        try {
+          await adminPool.query(`DROP DATABASE IF EXISTS ${RESTORE_DB_NAME} WITH (FORCE);`);
+        } catch {}
+        await adminPool.end();
+
+        if (fs.existsSync(backupDumpPath)) {
+          fs.unlinkSync(backupDumpPath);
+        }
       }
-
-      // Execute pg_dump -Fc
-      execSync(
-        `pg_dump -Fc -h ${PG_HOST} -p ${PG_PORT} -U ${PG_USER} -d ${STAGING_DB_NAME} -f "${backupDumpPath}"`,
-        { stdio: 'pipe' }
-      );
-      expect(fs.existsSync(backupDumpPath)).toBe(true);
-      const dumpStats = fs.statSync(backupDumpPath);
-      expect(dumpStats.size).toBeGreaterThan(10000);
-
-      // Verify SHA-256 checksums of storage files
-      const podFile = path.join(STAGING_STORAGE_DIR, 'documents');
-      const podFiles = fs.readdirSync(podFile);
-      expect(podFiles.length).toBeGreaterThan(0);
-      const hash1 = crypto.createHash('sha256').update(fs.readFileSync(path.join(podFile, podFiles[0]))).digest('hex');
-      const hash2 = crypto.createHash('sha256').update(fs.readFileSync(path.join(podFile, podFiles[0]))).digest('hex');
-      expect(hash1).toBe(hash2);
-
-      // Cleanup dump file
-      fs.unlinkSync(backupDumpPath);
     });
   });
 
   describe('7. Process Lifecycle, Graceful Shutdown & Rollback Simulation', () => {
     it('stops staging service cleanly and restarts verifying persistent data survival', async () => {
-      // 1. Kill first process
-      killProc(serverProcess);
+      // 1. Gracefully stop first process
+      const stopResult = await stopProcessGracefully(serverProcess);
+      expect(stopResult.exited).toBe(true);
       serverProcess = null;
-      await new Promise((r) => setTimeout(r, 1000));
 
       // 2. Start new instance simulating restart or rollback
       restartedProcess = spawn('node', ['dist/server.js'], {
@@ -741,23 +966,25 @@ describe('Phase 4P-D: Staging Deployment & Operational Runbook Execution', () =>
         },
         stdio: 'ignore',
       });
+      spawnedProcs.add(restartedProcess);
 
       const restarted = await waitForServer();
       expect(restarted).toBe(true);
 
       // 3. Verify health and that previous tokens and data survive restart
-      const healthRes = await fetch(`${STAGING_URL}/api/health`);
+      const healthRes = await stagingFetch(`${STAGING_URL}/api/health`);
       expect(healthRes.status).toBe(200);
 
-      const billRes = await fetch(`${STAGING_URL}/api/bills/${createdBillId}`, {
+      const billRes = await stagingFetch(`${STAGING_URL}/api/bills/${createdBillId}`, {
         headers: { 'Authorization': `Bearer ${ownerToken}` },
       });
       expect(billRes.status).toBe(200);
       const billData = await billRes.json();
       expect(billData.data.bill_number).toBe('SRL/26-27/1');
 
-      // Clean up restarted process
-      killProc(restartedProcess);
+      // 4. Gracefully stop restarted process
+      const restartStopResult = await stopProcessGracefully(restartedProcess);
+      expect(restartStopResult.exited).toBe(true);
       restartedProcess = null;
     });
   });

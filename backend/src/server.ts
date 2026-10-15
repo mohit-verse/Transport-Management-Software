@@ -15,6 +15,9 @@ const startServer = async () => {
 
     const shutdown = async () => {
       logger.info('Shutting down server...');
+      if (typeof (server as any).closeIdleConnections === 'function') {
+        (server as any).closeIdleConnections();
+      }
       server.close(async () => {
         logger.info('HTTP server closed');
         await pool.end();
@@ -22,11 +25,15 @@ const startServer = async () => {
         process.exit(0);
       });
 
-      // Force close after 10s
-      setTimeout(() => {
+      // Force close after 10s fallback
+      const forceTimer = setTimeout(() => {
+        if (typeof (server as any).closeAllConnections === 'function') {
+          (server as any).closeAllConnections();
+        }
         logger.error('Could not close connections in time, forcefully shutting down');
         process.exit(1);
       }, 10000);
+      forceTimer.unref();
     };
 
     process.on('SIGTERM', shutdown);

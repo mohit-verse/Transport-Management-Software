@@ -4,10 +4,10 @@ import { createAudit } from '../../utils/audit';
 
 export const createVehicle = async (data: any, userId: string) => {
   const sql = `
-    INSERT INTO market_vehicles (vehicle_number, vehicle_owner_id, vehicle_type)
-    VALUES ($1, $2, $3) RETURNING *
+    INSERT INTO market_vehicles (vehicle_number, vehicle_owner_id)
+    VALUES ($1, $2) RETURNING *
   `;
-  const res = await query(sql, [data.vehicle_number, data.vehicle_owner_id, data.vehicle_type]);
+  const res = await query(sql, [data.vehicle_number, data.vehicle_owner_id]);
   const v = res.rows[0];
 
   await createAudit({ entityType: 'MARKET_VEHICLE', entityId: v.id, action: 'CREATE', newState: v, userId });
@@ -16,7 +16,7 @@ export const createVehicle = async (data: any, userId: string) => {
 
 export const getVehicles = async () => {
   const res = await query(`
-    SELECT m.id, m.vehicle_number, m.vehicle_type, m.vehicle_owner_id, o.name as owner_name, o.mobile_number as owner_mobile_number
+    SELECT m.id, m.vehicle_number, m.vehicle_owner_id, o.name as owner_name, o.mobile_number as owner_mobile_number
     FROM market_vehicles m
     JOIN vehicle_owners o ON m.vehicle_owner_id = o.id
     ORDER BY m.created_at DESC
@@ -29,7 +29,6 @@ export const getVehicleById = async (id: string) => {
     SELECT 
       m.id, 
       m.vehicle_number, 
-      m.vehicle_type, 
       m.vehicle_owner_id, 
       o.name as owner_name,
       o.mobile_number as owner_mobile_number
@@ -40,7 +39,7 @@ export const getVehicleById = async (id: string) => {
   if (res.rows.length === 0) throw new AppError('NOT_FOUND', 'Market Vehicle not found', 404);
   
   const tripsRes = await query(`
-    SELECT id, trip_number, trip_date, origin, destination, loading_date, unloading_date, trip_status as status
+    SELECT id, trip_number, trip_date, origin, destination, loading_date, unloading_date, status
     FROM trips
     WHERE market_vehicle_id = $1
     ORDER BY created_at DESC

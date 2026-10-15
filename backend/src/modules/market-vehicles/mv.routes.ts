@@ -8,7 +8,7 @@ import * as schema from './mv.schema';
 
 export const mvRouter = Router();
 mvRouter.use(authenticate);
-mvRouter.get('/', requireRole(['OWNER', 'STAFF', 'CA']), controller.list);
-mvRouter.get('/:id', requireRole(['OWNER', 'STAFF', 'CA']), controller.get);
+mvRouter.get('/', requireRole(['OWNER', 'STAFF']), controller.list);
+mvRouter.get('/:id', requireRole(['OWNER', 'STAFF']), controller.get);
 mvRouter.post('/', requireRole(['OWNER', 'STAFF']), validateRequest(schema.createMvSchema), controller.create);
 mvRouter.patch('/:id', requireRole(['OWNER', 'STAFF']), validateRequest(schema.updateMvSchema), controller.update);

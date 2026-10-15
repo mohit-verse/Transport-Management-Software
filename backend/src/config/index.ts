@@ -15,6 +15,9 @@ export const envSchema = z
     CORS_ORIGIN: z.string().optional(),
     DATABASE_SSL: z.enum(['true', 'false']).optional(),
     DATABASE_SSL_CA: z.string().optional(),
+    BACKUP_DIR: z.string().optional(),
+    BACKUP_RETENTION_COUNT: z.string().optional(),
+    BACKUP_RETENTION_DAYS: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {
@@ -68,4 +71,9 @@ export const config = {
     dir: resolvedStorageDir,
   },
   corsOrigin: _env.data.CORS_ORIGIN || '*',
+  backup: {
+    dir: _env.data.BACKUP_DIR ? path.resolve(_env.data.BACKUP_DIR) : path.resolve(__dirname, '../../../backups'),
+    retentionCount: parseInt(_env.data.BACKUP_RETENTION_COUNT || '7', 10),
+    retentionDays: parseInt(_env.data.BACKUP_RETENTION_DAYS || '30', 10),
+  },
 };

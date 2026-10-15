@@ -11,6 +11,10 @@
     "migrate": "node dist/scripts/migrate.js",
     "migrate:dev": "ts-node src/scripts/migrate.ts",
     "reconcile:storage": "node dist/scripts/reconcile-storage.js",
+    "backup": "node dist/scripts/backup.js",
+    "backup:dev": "ts-node src/scripts/backup.ts",
+    "restore": "node dist/scripts/restore.js",
+    "restore:dev": "ts-node src/scripts/restore.ts",
     "test": "jest"
   },
   "keywords": [],

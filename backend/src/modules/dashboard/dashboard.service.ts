@@ -32,8 +32,15 @@ export const getDashboardData = async (user: any, query: any) => {
   const tripsCount = await pool.query(`SELECT COUNT(*) FROM trips WHERE status != 'CANCELLED' ${tripDateCondition}`, tripValues);
   
   // Needs attention
-  const pendingTrips = await pool.query(`SELECT COUNT(*) FROM trips WHERE status = 'PENDING_POD'`);
-  const unpaidBills = await pool.query(`SELECT COUNT(*) FROM bills WHERE bill_status IN ('UNPAID', 'PARTIALLY_PAID')`);
+  const pendingTrips = await pool.query(`
+    SELECT COUNT(DISTINCT t.id) FROM trips t
+    JOIN trip_pods tp ON tp.trip_id = t.id
+    WHERE tp.pod_status = 'PENDING' AND t.status != 'CANCELLED'
+  `);
+  const unpaidBills = await pool.query(`
+    SELECT COUNT(*) FROM bills 
+    WHERE bill_status IN ('GENERATED', 'SUBMITTED')
+  `);
 
   // Recent trips
   const recentTrips = await pool.query(`
@@ -55,7 +62,7 @@ export const getDashboardData = async (user: any, query: any) => {
   // Own-fleet performance (simple count or expense sum)
   const ownFleetTrips = await pool.query(`
     SELECT COUNT(*) FROM trips 
-    WHERE ownership_type = 'OWN_FLEET' AND status != 'CANCELLED'
+    WHERE vehicle_relationship = 'OWN_FLEET' AND status != 'CANCELLED'
     ${tripDateCondition}
   `, tripValues);
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -25,6 +25,10 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldAlert,
+  Undo2,
+  Redo2,
+  Maximize2,
+  Copy,
 } from 'lucide-react';
 import { Button } from '../components/Button';
 import { StatusBadge } from '../components/StatusBadge';
@@ -113,6 +117,34 @@ export default function BillDesigner() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'inspector' | 'page_setup' | 'layers'>('inspector');
   const [canvasZoom, setCanvasZoom] = useState<number>(0.9); // Scale factor for canvas view
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Undo / Redo History Stack
+  const [history, setHistory] = useState<BillTemplateComponent[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+
+  // Dragging & Resizing Pointer States
+  const [draggingState, setDraggingState] = useState<{
+    key: string;
+    startX: number;
+    startY: number;
+    initialCompX: number;
+    initialCompY: number;
+  } | null>(null);
+
+  const [resizingState, setResizingState] = useState<{
+    key: string;
+    direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+    initialW: number;
+    initialH: number;
+  } | null>(null);
+
+  const [alignmentGuide, setAlignmentGuide] = useState<{ x?: number; y?: number } | null>(null);
+  const [outOfBoundsComponents, setOutOfBoundsComponents] = useState<string[]>([]);
 
   // Modals State
   const [isDynamicFieldModalOpen, setIsDynamicFieldModalOpen] = useState(false);
@@ -189,17 +221,113 @@ export default function BillDesigner() {
   // Selected Component helper
   const selectedComponent = components.find((c) => c.component_key === selectedKey) || null;
 
+  // Helper to record undo/redo history
+  const pushHistory = useCallback((newComponents: BillTemplateComponent[]) => {
+    setHistory((prev) => {
+      const sliced = prev.slice(0, historyIndex + 1);
+      return [...sliced, newComponents];
+    });
+    setHistoryIndex((prev) => prev + 1);
+  }, [historyIndex]);
+
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const target = history[historyIndex - 1];
+      setHistoryIndex((prev) => prev - 1);
+      setComponents(target);
+    }
+  }, [history, historyIndex]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const target = history[historyIndex + 1];
+      setHistoryIndex((prev) => prev + 1);
+      setComponents(target);
+    }
+  }, [history, historyIndex]);
+
+  // Orientation toggle and Out-of-bounds boundary validation
+  const handleOrientationChange = (newOrientation: 'PORTRAIT' | 'LANDSCAPE') => {
+    const minDim = Math.min(layout.page_width, layout.page_height);
+    const maxDim = Math.max(layout.page_width, layout.page_height);
+    const newWidth = newOrientation === 'LANDSCAPE' ? maxDim : minDim;
+    const newHeight = newOrientation === 'LANDSCAPE' ? minDim : maxDim;
+
+    setLayout((prev) => ({
+      ...prev,
+      orientation: newOrientation,
+      page_width: newWidth,
+      page_height: newHeight,
+    }));
+
+    const oob = components.filter(
+      (c) => (c.position_x ?? 0) + (c.width ?? 0) > newWidth || (c.position_y ?? 0) + (c.height ?? 0) > newHeight
+    );
+    setOutOfBoundsComponents(oob.map((c) => c.component_key));
+  };
+
+  const handleAutoFitOutOfBounds = () => {
+    const printableW = layout.page_width - layout.margin_left - layout.margin_right;
+    const printableH = layout.page_height - layout.margin_top - layout.margin_bottom;
+
+    const fitted = components.map((c) => {
+      let x = c.position_x ?? layout.margin_left;
+      let y = c.position_y ?? layout.margin_top;
+      let w = c.width ?? 100;
+      let h = c.height ?? 30;
+
+      if (w > printableW) w = printableW;
+      if (h > printableH) h = printableH;
+
+      if (x + w > layout.page_width - layout.margin_right) {
+        x = Math.max(layout.margin_left, layout.page_width - layout.margin_right - w);
+      }
+      if (y + h > layout.page_height - layout.margin_bottom) {
+        y = Math.max(layout.margin_top, layout.page_height - layout.margin_bottom - h);
+      }
+
+      return {
+        ...c,
+        position_x: x,
+        position_y: y,
+        width: w,
+        height: h,
+      };
+    });
+
+    setComponents(fitted);
+    setOutOfBoundsComponents([]);
+    pushHistory(fitted);
+  };
+
+  const handleFitToPage = () => {
+    const availableW = window.innerWidth - 650;
+    const availableH = window.innerHeight - 180;
+    const scaleW = availableW / layout.page_width;
+    const scaleH = availableH / layout.page_height;
+    const fitScale = Math.max(0.4, Math.min(1.2, Math.min(scaleW, scaleH) * 0.95));
+    setCanvasZoom(Number(fitScale.toFixed(2)));
+  };
+
   // Add Component handler
-  const handleAddComponent = (paletteItem: (typeof COMPONENT_PALETTE)[number]) => {
+  const handleAddComponent = (
+    paletteItem: (typeof COMPONENT_PALETTE)[number],
+    customX?: number,
+    customY?: number
+  ) => {
     const count = components.filter((c) => c.component_type === paletteItem.type).length + 1;
     const key = `${paletteItem.type.toLowerCase()}_${count}`;
 
-    // Compute cascaded position
-    const lastY = components.reduce(
-      (maxY, c) => Math.max(maxY, (c.position_y || 0) + (c.height || 0)),
-      layout.margin_top
-    );
-    const newY = Math.min(lastY + 10, layout.page_height - layout.margin_bottom - paletteItem.defaultH);
+    let posX = customX !== undefined ? customX : layout.margin_left;
+    let posY = customY !== undefined ? customY : layout.margin_top;
+
+    if (customY === undefined) {
+      const lastY = components.reduce(
+        (maxY, c) => Math.max(maxY, (c.position_y || 0) + (c.height || 0)),
+        layout.margin_top
+      );
+      posY = Math.min(lastY + 10, layout.page_height - layout.margin_bottom - paletteItem.defaultH);
+    }
 
     let initialContent: Record<string, any> = {};
     let initialStyle: Record<string, any> = {
@@ -231,12 +359,14 @@ export default function BillDesigner() {
       };
     } else if (paletteItem.type === 'HEADER') {
       initialContent = {
+        title: 'SHRI SANWARIYA ROAD LINES',
+        subtitle: 'FLEET OWNERS & TRANSPORT CONTRACTORS • FULL TRUCK LOAD (FTL)',
         text: 'SHRI SANWARIYA ROAD LINES\nFLEET OWNERS & TRANSPORT CONTRACTORS',
       };
       initialStyle.alignment = 'center';
     } else if (paletteItem.type === 'FOOTER') {
       initialContent = {
-        text: 'Terms & Conditions: Subject to Udaipur Jurisdiction. This is a computer generated invoice.',
+        text: 'Terms & Conditions: Subject to Gandhidham Jurisdiction. This is a computer generated invoice.',
       };
       initialStyle.alignment = 'center';
       initialStyle.font_size = 8;
@@ -248,6 +378,7 @@ export default function BillDesigner() {
       initialContent = {
         asset_key: '',
         required: true,
+        label: paletteItem.label,
       };
     } else if (paletteItem.type === 'LINE') {
       initialStyle = {
@@ -267,24 +398,304 @@ export default function BillDesigner() {
     const newComponent: BillTemplateComponent = {
       component_type: paletteItem.type,
       component_key: key,
-      position_x: layout.margin_left,
-      position_y: newY,
+      position_x: posX,
+      position_y: posY,
       width: Math.min(paletteItem.defaultW, layout.page_width - layout.margin_left - layout.margin_right),
       height: paletteItem.defaultH,
       style_json: initialStyle,
       content_json: initialContent,
     };
 
-    setComponents([...components, newComponent]);
+    const next = [...components, newComponent];
+    setComponents(next);
     setSelectedKey(key);
     setActiveTab('inspector');
+    pushHistory(next);
   };
+
+  // Duplicate Selected Component
+  const handleDuplicateSelected = useCallback(() => {
+    if (!selectedComponent) return;
+    const count = components.filter((c) => c.component_type === selectedComponent.component_type).length + 1;
+    const newKey = `${selectedComponent.component_type.toLowerCase()}_${count}`;
+    const newX = Math.min((selectedComponent.position_x ?? 0) + 16, layout.page_width - (selectedComponent.width ?? 100));
+    const newY = Math.min((selectedComponent.position_y ?? 0) + 16, layout.page_height - (selectedComponent.height ?? 30));
+
+    const duplicated: BillTemplateComponent = {
+      ...selectedComponent,
+      component_key: newKey,
+      position_x: newX,
+      position_y: newY,
+      content_json: JSON.parse(JSON.stringify(selectedComponent.content_json || {})),
+      style_json: JSON.parse(JSON.stringify(selectedComponent.style_json || {})),
+    };
+
+    const next = [...components, duplicated];
+    setComponents(next);
+    setSelectedKey(newKey);
+    pushHistory(next);
+  }, [selectedComponent, components, layout.page_width, layout.page_height, pushHistory]);
+
+  // Drag and Drop from Palette onto Canvas
+  const handleCanvasDragOver = (e: React.DragEvent) => {
+    if (!isOwner) return;
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleCanvasDrop = (e: React.DragEvent) => {
+    if (!isOwner || !canvasRef.current) return;
+    e.preventDefault();
+    const componentType = e.dataTransfer?.getData('text/plain') as ComponentType;
+    if (!componentType) return;
+    const paletteItem = COMPONENT_PALETTE.find((p) => p.type === componentType);
+    if (!paletteItem) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const clientX = typeof e.clientX === 'number' && !isNaN(e.clientX) ? e.clientX : 0;
+    const clientY = typeof e.clientY === 'number' && !isNaN(e.clientY) ? e.clientY : 0;
+    const rawX = (clientX - (rect?.left || 0)) / canvasZoom;
+    const rawY = (clientY - (rect?.top || 0)) / canvasZoom;
+
+    let dropX = isNaN(rawX) ? layout.margin_left : Math.round(rawX / 8) * 8;
+    let dropY = isNaN(rawY) ? layout.margin_top : Math.round(rawY / 8) * 8;
+
+    const maxW = paletteItem.defaultW;
+    const maxH = paletteItem.defaultH;
+    dropX = Math.max(0, Math.min(layout.page_width - maxW, dropX));
+    dropY = Math.max(0, Math.min(layout.page_height - maxH, dropY));
+
+    handleAddComponent(paletteItem, dropX, dropY);
+  };
+
+  // Pointer dragging existing components on canvas
+  const handleDragPointerDown = (e: React.PointerEvent, comp: BillTemplateComponent) => {
+    if (typeof (e.currentTarget as HTMLElement).setPointerCapture === 'function') {
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    setDraggingState({
+      key: comp.component_key,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialCompX: comp.position_x ?? 0,
+      initialCompY: comp.position_y ?? 0,
+    });
+  };
+
+  const handleDragPointerMove = (e: React.PointerEvent) => {
+    if (!draggingState) return;
+    const comp = components.find((c) => c.component_key === draggingState.key);
+    if (!comp) return;
+
+    const deltaX = (e.clientX - draggingState.startX) / canvasZoom;
+    const deltaY = (e.clientY - draggingState.startY) / canvasZoom;
+
+    let newX = Math.round(draggingState.initialCompX + deltaX);
+    let newY = Math.round(draggingState.initialCompY + deltaY);
+
+    newX = Math.round(newX / 8) * 8;
+    newY = Math.round(newY / 8) * 8;
+
+    let guideX: number | undefined;
+    let guideY: number | undefined;
+
+    if (Math.abs(newX - layout.margin_left) <= 6) {
+      newX = layout.margin_left;
+      guideX = layout.margin_left;
+    } else if (Math.abs(newX + (comp.width || 100) - (layout.page_width - layout.margin_right)) <= 6) {
+      newX = layout.page_width - layout.margin_right - (comp.width || 100);
+      guideX = layout.page_width - layout.margin_right;
+    }
+
+    const centerX = Math.round(layout.page_width / 2);
+    const compCenterX = newX + Math.round((comp.width || 100) / 2);
+    if (Math.abs(compCenterX - centerX) <= 6) {
+      newX = centerX - Math.round((comp.width || 100) / 2);
+      guideX = centerX;
+    }
+
+    if (Math.abs(newY - layout.margin_top) <= 6) {
+      newY = layout.margin_top;
+      guideY = layout.margin_top;
+    }
+
+    newX = Math.max(0, Math.min(layout.page_width - (comp.width || 100), newX));
+    newY = Math.max(0, Math.min(layout.page_height - (comp.height || 30), newY));
+
+    setAlignmentGuide({ x: guideX, y: guideY });
+
+    setComponents((prev) =>
+      prev.map((c) =>
+        c.component_key === draggingState.key
+          ? { ...c, position_x: newX, position_y: newY }
+          : c
+      )
+    );
+  };
+
+  const handleDragPointerUp = (e: React.PointerEvent) => {
+    if (draggingState) {
+      if (typeof (e.currentTarget as HTMLElement).releasePointerCapture === 'function') {
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+      setDraggingState(null);
+      setAlignmentGuide(null);
+      pushHistory(components);
+    }
+  };
+
+  // Pointer resizing handles
+  const handleResizePointerDown = (
+    e: React.PointerEvent,
+    comp: BillTemplateComponent,
+    direction: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+  ) => {
+    e.stopPropagation();
+    if (typeof (e.currentTarget as HTMLElement).setPointerCapture === 'function') {
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    setResizingState({
+      key: comp.component_key,
+      direction,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: comp.position_x ?? 0,
+      initialY: comp.position_y ?? 0,
+      initialW: comp.width ?? 100,
+      initialH: comp.height ?? 30,
+    });
+  };
+
+  const handleResizePointerMove = (e: React.PointerEvent) => {
+    if (!resizingState) return;
+    const deltaX = (e.clientX - resizingState.startX) / canvasZoom;
+    const deltaY = (e.clientY - resizingState.startY) / canvasZoom;
+
+    let newX = resizingState.initialX;
+    let newY = resizingState.initialY;
+    let newW = resizingState.initialW;
+    let newH = resizingState.initialH;
+
+    const dir = resizingState.direction;
+
+    if (dir.includes('e')) {
+      newW = Math.max(20, Math.round((resizingState.initialW + deltaX) / 8) * 8);
+      newW = Math.min(layout.page_width - newX, newW);
+    }
+    if (dir.includes('w')) {
+      const tentativeW = Math.max(20, Math.round((resizingState.initialW - deltaX) / 8) * 8);
+      const shiftX = resizingState.initialW - tentativeW;
+      newX = Math.max(0, resizingState.initialX + shiftX);
+      newW = resizingState.initialW + (resizingState.initialX - newX);
+    }
+    if (dir.includes('s')) {
+      newH = Math.max(10, Math.round((resizingState.initialH + deltaY) / 8) * 8);
+      newH = Math.min(layout.page_height - newY, newH);
+    }
+    if (dir.includes('n')) {
+      const tentativeH = Math.max(10, Math.round((resizingState.initialH - deltaY) / 8) * 8);
+      const shiftY = resizingState.initialH - tentativeH;
+      newY = Math.max(0, resizingState.initialY + shiftY);
+      newH = resizingState.initialH + (resizingState.initialY - newY);
+    }
+
+    setComponents((prev) =>
+      prev.map((c) =>
+        c.component_key === resizingState.key
+          ? { ...c, position_x: newX, position_y: newY, width: newW, height: newH }
+          : c
+      )
+    );
+  };
+
+  const handleResizePointerUp = (e: React.PointerEvent) => {
+    if (resizingState) {
+      if (typeof (e.currentTarget as HTMLElement).releasePointerCapture === 'function') {
+        try {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }
+      setResizingState(null);
+      pushHistory(components);
+    }
+  };
+
+  // Keyboard Shortcuts (Delete, Nudge, Duplicate, Undo, Redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName)) {
+        return;
+      }
+
+      if (!isOwner) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (!selectedKey) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        handleDeleteComponent(selectedKey);
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateSelected();
+        return;
+      }
+
+      const step = e.shiftKey ? 10 : 1;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        setComponents((prev) => {
+          const updated = prev.map((c) => {
+            if (c.component_key !== selectedKey) return c;
+            let newX = c.position_x ?? 0;
+            let newY = c.position_y ?? 0;
+            if (e.key === 'ArrowLeft') newX = Math.max(0, newX - step);
+            if (e.key === 'ArrowRight') newX = Math.min(layout.page_width - (c.width ?? 0), newX + step);
+            if (e.key === 'ArrowUp') newY = Math.max(0, newY - step);
+            if (e.key === 'ArrowDown') newY = Math.min(layout.page_height - (c.height ?? 0), newY + step);
+            return { ...c, position_x: newX, position_y: newY };
+          });
+          pushHistory(updated);
+          return updated;
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedKey, isOwner, components, layout, handleUndo, handleRedo, handleDuplicateSelected, pushHistory]);
 
   // Update selected component
   const updateSelectedComponent = (patch: Partial<BillTemplateComponent>) => {
     if (!selectedKey) return;
-    setComponents((prev) =>
-      prev.map((c) => {
+    setComponents((prev) => {
+      const next = prev.map((c) => {
         if (c.component_key === selectedKey) {
           return {
             ...c,
@@ -298,16 +709,19 @@ export default function BillDesigner() {
           };
         }
         return c;
-      })
-    );
+      });
+      return next;
+    });
   };
 
   // Remove component
   const handleDeleteComponent = (keyToDelete: string) => {
-    setComponents((prev) => prev.filter((c) => c.component_key !== keyToDelete));
+    const next = components.filter((c) => c.component_key !== keyToDelete);
+    setComponents(next);
     if (selectedKey === keyToDelete) {
       setSelectedKey(null);
     }
+    pushHistory(next);
   };
 
   // Move component in layer stack
@@ -320,12 +734,14 @@ export default function BillDesigner() {
       next[idx - 1] = next[idx];
       next[idx] = temp;
       setComponents(next);
+      pushHistory(next);
     } else if (direction === 'down' && idx < components.length - 1) {
       const next = [...components];
       const temp = next[idx + 1];
       next[idx + 1] = next[idx];
       next[idx] = temp;
       setComponents(next);
+      pushHistory(next);
     }
   };
 
@@ -556,27 +972,63 @@ export default function BillDesigner() {
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center gap-2.5">
-          {/* Zoom controls */}
-          <div className="hidden md:flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 mr-2">
+        <div className="flex items-center gap-2">
+          {/* Undo / Redo controls */}
+          <div className="flex items-center bg-gray-100 rounded-md p-0.5 border border-gray-200">
             <button
               type="button"
-              onClick={() => setCanvasZoom((z) => Math.max(0.5, z - 0.1))}
+              onClick={handleUndo}
+              disabled={historyIndex <= 0}
+              className="p-1 text-gray-600 hover:text-gray-900 rounded disabled:opacity-30"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={historyIndex >= history.length - 1}
+              className="p-1 text-gray-600 hover:text-gray-900 rounded disabled:opacity-30"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Zoom & Fit controls */}
+          <div className="hidden md:flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 mr-1">
+            <button
+              type="button"
+              onClick={() => setCanvasZoom((z) => Math.max(0.4, Number((z - 0.1).toFixed(1))))}
               className="p-1 text-gray-600 hover:text-gray-900 rounded"
               title="Zoom Out"
             >
               <ZoomOut className="w-4 h-4" />
             </button>
-            <span className="text-xs font-mono px-1.5 text-gray-700">
-              {Math.round(canvasZoom * 100)}%
-            </span>
             <button
               type="button"
-              onClick={() => setCanvasZoom((z) => Math.min(1.5, z + 0.1))}
+              onClick={() => setCanvasZoom(1.0)}
+              className="text-xs font-mono px-1.5 text-gray-700 hover:bg-white rounded"
+              title="Reset Zoom to 100%"
+            >
+              {Math.round(canvasZoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => setCanvasZoom((z) => Math.min(1.6, Number((z + 0.1).toFixed(1))))}
               className="p-1 text-gray-600 hover:text-gray-900 rounded"
               title="Zoom In"
             >
               <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleFitToPage}
+              className="text-[11px] px-1.5 py-0.5 text-gray-600 hover:text-gray-900 hover:bg-white rounded flex items-center gap-1 font-medium"
+              title="Fit to Window"
+            >
+              <Maximize2 className="w-3 h-3" />
+              Fit
             </button>
           </div>
 
@@ -634,6 +1086,34 @@ export default function BillDesigner() {
         </div>
       </header>
 
+      {/* OUT OF BOUNDS WARNING BANNER */}
+      {outOfBoundsComponents.length > 0 && (
+        <div className="bg-amber-50 border-b border-amber-300 px-4 py-2 text-xs text-amber-900 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>
+              <strong>Page Boundary Warning:</strong> {outOfBoundsComponents.length} component(s) ({outOfBoundsComponents.join(', ')}) exceed page dimensions after orientation change.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAutoFitOutOfBounds}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded text-xs shadow-xs"
+            >
+              Auto-fit components to margins
+            </button>
+            <button
+              type="button"
+              onClick={() => setOutOfBoundsComponents([])}
+              className="text-amber-700 hover:text-amber-900 font-bold ml-2"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEURISTIC IMPORT ALERT BANNER */}
       {heuristicWarningBanner && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-900">
@@ -690,9 +1170,15 @@ export default function BillDesigner() {
               <button
                 key={item.type}
                 type="button"
+                draggable={isOwner}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', item.type);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
                 onClick={() => handleAddComponent(item)}
                 disabled={!isOwner}
-                className="w-full text-left px-3 py-2 rounded-md border border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 flex items-center gap-2.5 text-xs text-gray-700 transition-colors disabled:opacity-50"
+                className="w-full text-left px-3 py-2 rounded-md border border-gray-200 hover:border-blue-400 hover:bg-blue-50/50 flex items-center gap-2.5 text-xs text-gray-700 transition-colors disabled:opacity-50 cursor-grab active:cursor-grabbing"
+                title="Click or drag onto canvas to place"
               >
                 <item.icon className="w-4 h-4 text-gray-500" />
                 <span className="font-medium">{item.label}</span>
@@ -775,6 +1261,9 @@ export default function BillDesigner() {
         {/* CENTER PANE: INTERACTIVE CANVASES WITH PAPER MARGINS */}
         <main className="flex-1 bg-gray-200 overflow-auto p-8 flex justify-center items-start">
           <div
+            ref={canvasRef}
+            onDragOver={handleCanvasDragOver}
+            onDrop={handleCanvasDrop}
             className="bg-white shadow-2xl relative select-none transition-transform duration-100 origin-top"
             style={{
               width: `${layout.page_width}px`,
@@ -797,6 +1286,20 @@ export default function BillDesigner() {
               </span>
             </div>
 
+            {/* Alignment Guide Lines */}
+            {alignmentGuide?.x != null && (
+              <div
+                className="absolute top-0 bottom-0 border-l border-red-500 z-35 pointer-events-none"
+                style={{ left: `${alignmentGuide.x}px` }}
+              />
+            )}
+            {alignmentGuide?.y != null && (
+              <div
+                className="absolute left-0 right-0 border-t border-red-500 z-35 pointer-events-none"
+                style={{ top: `${alignmentGuide.y}px` }}
+              />
+            )}
+
             {/* Rendered Components on Canvas */}
             {components.map((comp) => {
               const isSelected = comp.component_key === selectedKey;
@@ -813,7 +1316,19 @@ export default function BillDesigner() {
                     setSelectedKey(comp.component_key);
                     setActiveTab('inspector');
                   }}
-                  className={`absolute group cursor-pointer transition-shadow rounded-sm ${
+                  onPointerDown={(e) => {
+                    if (!isOwner) return;
+                    if ((e.target as HTMLElement).dataset.resizeHandle) return;
+                    e.stopPropagation();
+                    setSelectedKey(comp.component_key);
+                    setActiveTab('inspector');
+                    handleDragPointerDown(e, comp);
+                  }}
+                  onPointerMove={handleDragPointerMove}
+                  onPointerUp={handleDragPointerUp}
+                  className={`absolute group transition-shadow rounded-xs touch-none ${
+                    isOwner ? 'cursor-move' : 'cursor-pointer'
+                  } ${
                     isSelected
                       ? 'ring-2 ring-blue-500 bg-blue-50/20 z-20 shadow-md'
                       : 'hover:ring-1 hover:ring-gray-400 z-10'
@@ -827,10 +1342,58 @@ export default function BillDesigner() {
                 >
                   {/* Selected Tag & Dimensions indicator */}
                   {isSelected && (
-                    <div className="absolute -top-5 left-0 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded font-mono flex items-center gap-1 z-30">
+                    <div className="absolute -top-5 left-0 bg-blue-600 text-white text-[9px] px-1.5 py-0.5 rounded font-mono flex items-center gap-1 z-30 pointer-events-none">
                       <span>{comp.component_key}</span>
                       <span>({Math.round(w)}×{Math.round(h)})</span>
                     </div>
+                  )}
+
+                  {/* 8-Point Interactive Resize Handles */}
+                  {isSelected && isOwner && (
+                    <>
+                      {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((dir) => {
+                        let positionStyle: React.CSSProperties = {};
+                        let cursor = 'pointer';
+                        if (dir === 'nw') {
+                          positionStyle = { top: -4, left: -4 };
+                          cursor = 'nwse-resize';
+                        } else if (dir === 'n') {
+                          positionStyle = { top: -4, left: '50%', transform: 'translateX(-50%)' };
+                          cursor = 'ns-resize';
+                        } else if (dir === 'ne') {
+                          positionStyle = { top: -4, right: -4 };
+                          cursor = 'nesw-resize';
+                        } else if (dir === 'e') {
+                          positionStyle = { top: '50%', right: -4, transform: 'translateY(-50%)' };
+                          cursor = 'ew-resize';
+                        } else if (dir === 'se') {
+                          positionStyle = { bottom: -4, right: -4 };
+                          cursor = 'nwse-resize';
+                        } else if (dir === 's') {
+                          positionStyle = { bottom: -4, left: '50%', transform: 'translateX(-50%)' };
+                          cursor = 'ns-resize';
+                        } else if (dir === 'sw') {
+                          positionStyle = { bottom: -4, left: -4 };
+                          cursor = 'nesw-resize';
+                        } else if (dir === 'w') {
+                          positionStyle = { top: '50%', left: -4, transform: 'translateY(-50%)' };
+                          cursor = 'ew-resize';
+                        }
+
+                        return (
+                          <div
+                            key={dir}
+                            data-resize-handle={dir}
+                            onPointerDown={(e) => handleResizePointerDown(e, comp, dir)}
+                            onPointerMove={handleResizePointerMove}
+                            onPointerUp={handleResizePointerUp}
+                            className="absolute w-2.5 h-2.5 bg-white border-2 border-blue-600 rounded-full z-40 hover:bg-blue-600 shadow-xs"
+                            style={{ ...positionStyle, cursor }}
+                            title={`Resize ${dir.toUpperCase()}`}
+                          />
+                        );
+                      })}
+                    </>
                   )}
 
                   {/* Component Preview Content inside bounding box */}
@@ -987,14 +1550,26 @@ export default function BillDesigner() {
                         </p>
                       </div>
                       {isOwner && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteComponent(selectedComponent.component_key)}
-                          className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Delete
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDuplicateSelected}
+                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
+                            title="Duplicate component (Ctrl+D)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteComponent(selectedComponent.component_key)}
+                            className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
+                            title="Delete component (Delete / Backspace)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -1535,16 +2110,8 @@ export default function BillDesigner() {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (layout.orientation !== 'PORTRAIT') {
-                          setLayout((prev) => ({
-                            ...prev,
-                            orientation: 'PORTRAIT',
-                            page_width: Math.min(prev.page_width, prev.page_height),
-                            page_height: Math.max(prev.page_width, prev.page_height),
-                          }));
-                        }
-                      }}
+                      onClick={() => handleOrientationChange('PORTRAIT')}
+                      disabled={!isOwner}
                       className={`py-1.5 text-center border rounded ${
                         layout.orientation === 'PORTRAIT'
                           ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
@@ -1555,16 +2122,8 @@ export default function BillDesigner() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (layout.orientation !== 'LANDSCAPE') {
-                          setLayout((prev) => ({
-                            ...prev,
-                            orientation: 'LANDSCAPE',
-                            page_width: Math.max(prev.page_width, prev.page_height),
-                            page_height: Math.min(prev.page_width, prev.page_height),
-                          }));
-                        }
-                      }}
+                      onClick={() => handleOrientationChange('LANDSCAPE')}
+                      disabled={!isOwner}
                       className={`py-1.5 text-center border rounded ${
                         layout.orientation === 'LANDSCAPE'
                           ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'

@@ -124,21 +124,35 @@ function renderStructuredTemplate(
   context: DynamicFieldContext,
   sanitize: (t: any) => string
 ): Buffer {
-  const pageWidth = layout.page_width || 595.28; // Default A4
-  const pageHeight = layout.page_height || 841.89;
-  const marginLeft = layout.margin_left || 40;
-  const marginRight = layout.margin_right || 40;
-  const marginTop = layout.margin_top || 40;
-  const marginBottom = layout.margin_bottom || 40;
+  const orientation = layout.orientation || 'PORTRAIT';
+  let pageWidth = Number(layout.page_width) || 595.28; // Default A4
+  let pageHeight = Number(layout.page_height) || 841.89;
+
+  // Swap width and height if landscape orientation specified
+  if (orientation === 'LANDSCAPE') {
+    if (pageWidth < pageHeight) {
+      const temp = pageWidth;
+      pageWidth = pageHeight;
+      pageHeight = temp;
+    }
+  } else {
+    if (pageWidth > pageHeight) {
+      const temp = pageWidth;
+      pageWidth = pageHeight;
+      pageHeight = temp;
+    }
+  }
+
+  const marginLeft = Number(layout.margin_left) || 40;
+  const marginRight = Number(layout.margin_right) || 40;
+  const marginTop = Number(layout.margin_top) || 40;
+  const marginBottom = Number(layout.margin_bottom) || 40;
   const printableWidth = pageWidth - marginLeft - marginRight;
 
   const toPdfY = (y: number | null | undefined, defaultY: number): number => {
     if (y === null || y === undefined) return defaultY;
-    // If coordinate was specified top-down (y <= pageHeight / 2), convert to bottom-up
-    if (y <= pageHeight / 2) {
-      return pageHeight - marginTop - y;
-    }
-    return y;
+    // In designer canvas, y=0 is top of page. In PDF, 0 is bottom of page.
+    return pageHeight - y;
   };
 
   // Group components by type
@@ -148,7 +162,7 @@ function renderStructuredTemplate(
   const otherComponents = components.filter((c) => !['HEADER', 'FOOTER', 'TABLE'].includes(c.component_type));
 
   const items = Array.isArray(bill.items) ? bill.items : [];
-  const itemsPerPage = 22;
+  const itemsPerPage = orientation === 'LANDSCAPE' ? 14 : 22;
 
   // 1. Partition components into sections by PAGE_BREAK
   // Collapse consecutive page breaks and filter out leading/trailing breaks to prevent blank pages
@@ -274,7 +288,8 @@ function renderStructuredTemplate(
           if (rawY !== null && rawY !== undefined && section.startPageBreakY != null && rawY >= section.startPageBreakY) {
             rawY = rawY - section.startPageBreakY + marginTop;
           }
-          const posY = toPdfY(rawY, 650);
+          const defaultCompY = pageHeight - marginTop - 60;
+          const posY = toPdfY(rawY, defaultCompY);
           const compH = comp.height || 30;
           const bottomY = posY - compH;
           if (lowestCompBottomY === null || bottomY < lowestCompBottomY) {
@@ -299,7 +314,7 @@ function renderStructuredTemplate(
               const textLines = text.split('\n');
               lines.push('BT');
               lines.push(`/${isBold ? 'F2' : 'F1'} ${fontSize} Tf`);
-              lines.push(`${posX} ${posY} Td`);
+              lines.push(`${posX} ${posY - fontSize} Td`);
               lines.push(`(${sanitize(textLines[0])}) Tj`);
               for (let li = 1; li < textLines.length; li++) {
                 lines.push(`0 -${fontSize + 4} Td`);
@@ -307,17 +322,21 @@ function renderStructuredTemplate(
               }
               lines.push('ET');
             }
-          } else if (comp.component_type === 'LINE' || comp.component_type === 'BORDER') {
+          } else if (comp.component_type === 'LINE') {
             const lineWidth = comp.width || printableWidth;
             lines.push(`${posX} ${posY} m ${posX + lineWidth} ${posY} l S`);
+          } else if (comp.component_type === 'BORDER') {
+            const boxW = comp.width || printableWidth;
+            const boxH = comp.height || 40;
+            lines.push(`${posX} ${posY - boxH} ${boxW} ${boxH} re S`);
           } else if (['IMAGE', 'LOGO', 'SIGNATURE', 'STAMP'].includes(comp.component_type)) {
             const w = comp.width || 120;
             const h = comp.height || 40;
             const label = comp.content_json?.label || comp.component_key || comp.component_type;
 
-            // Check if this asset component is marked required
+            // Check if this asset component is marked required (only enforce on finalized bills, not in PREVIEW mode)
             const isRequired = comp.content_json?.required === true || comp.content_json?.is_required === true;
-            if (isRequired) {
+            if (isRequired && bill.bill_status !== 'PREVIEW') {
               const snapshotAssets = bill.template_snapshot?.assets || [];
               const matchingAsset = snapshotAssets.find((a: any) =>
                 (comp.content_json?.storage_key && a.storage_key === comp.content_json.storage_key) ||
@@ -345,14 +364,17 @@ function renderStructuredTemplate(
       let currentTableY: number | null = null;
 
       if (section.hasTable) {
-        let tableStartY = isFirstPageOfDoc ? 520 : pageHeight - marginTop - 45;
+        const defaultTableStartY = isFirstPageOfDoc
+          ? (orientation === 'LANDSCAPE' ? pageHeight - marginTop - 110 : Math.min(520, pageHeight - marginTop - 130))
+          : pageHeight - marginTop - 45;
+        let tableStartY = defaultTableStartY;
         if (tableComponents.length > 0 && tableComponents[0].position_y !== null && tableComponents[0].position_y !== undefined) {
           if (isFirstPageOfSection) {
             let rawTableY = tableComponents[0].position_y;
             if (rawTableY !== null && rawTableY !== undefined && section.startPageBreakY != null && rawTableY >= section.startPageBreakY) {
               rawTableY = rawTableY - section.startPageBreakY + marginTop;
             }
-            tableStartY = toPdfY(rawTableY, 520);
+            tableStartY = toPdfY(rawTableY, defaultTableStartY);
           }
         }
 

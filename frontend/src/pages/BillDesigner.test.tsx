@@ -204,4 +204,133 @@ describe('BillDesigner Visual Editor', () => {
       expect(screen.getByText(/--- Page Break/i)).toBeInTheDocument();
     });
   });
+
+  it('handles drag and drop of component from palette onto canvas', async () => {
+    renderWithProviders();
+
+    const canvas = screen.getByText('Print Area Margin').parentElement!;
+    fireEvent.dragOver(canvas, { clientX: 150, clientY: 200 });
+    fireEvent.drop(canvas, {
+      clientX: 150,
+      clientY: 200,
+      dataTransfer: {
+        getData: (type: string) => (type === 'text/plain' ? 'BORDER' : ''),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/border_1/i)[0]).toBeInTheDocument();
+    });
+  });
+
+  it('supports 8-point interactive resizing of selected component', async () => {
+    renderWithProviders();
+
+    // Add a text block
+    fireEvent.click(screen.getByRole('button', { name: /Text Block/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Resize SE')).toBeInTheDocument();
+    });
+
+    const seHandle = screen.getByTitle('Resize SE');
+    fireEvent.pointerDown(seHandle, { clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(seHandle, { clientX: 280, clientY: 280, pointerId: 1 });
+    fireEvent.pointerUp(seHandle, { pointerId: 1 });
+
+    expect(screen.getByDisplayValue(/328|320|240/)).toBeInTheDocument();
+  });
+
+  it('supports keyboard shortcuts for nudge, duplicate, delete, and undo/redo', async () => {
+    renderWithProviders();
+
+    // Add a text block
+    fireEvent.click(screen.getByRole('button', { name: /Text Block/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('text_1')[0]).toBeInTheDocument();
+    });
+
+    // Duplicate using Ctrl+D
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+    await waitFor(() => {
+      expect(screen.getAllByText('text_2')[0]).toBeInTheDocument();
+    });
+
+    // Nudge with ArrowRight
+    fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
+
+    // Delete with Delete key
+    fireEvent.keyDown(window, { key: 'Delete' });
+    await waitFor(() => {
+      expect(screen.queryByText('text_2')).not.toBeInTheDocument();
+    });
+
+    // Undo with Ctrl+Z
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    await waitFor(() => {
+      expect(screen.getAllByText('text_2')[0]).toBeInTheDocument();
+    });
+  });
+
+  it('swaps dimensions on orientation change and provides out-of-bounds remediation', async () => {
+    renderWithProviders();
+
+    // Switch to Page Setup tab
+    fireEvent.click(screen.getByRole('button', { name: /Page Setup/i }));
+
+    // Switch to Landscape
+    const landscapeBtn = screen.getByRole('button', { name: /Landscape/i });
+    fireEvent.click(landscapeBtn);
+
+    // Switch back to Element Inspector and add a header
+    fireEvent.click(screen.getByRole('button', { name: /Element Inspector/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Company Header/i }));
+
+    // Set X position to 700 (valid in landscape 842pt, overflows portrait 595pt)
+    const xInput = screen.getByDisplayValue('36');
+    fireEvent.change(xInput, { target: { value: '700' } });
+
+    // Switch to Page Setup and change orientation to Portrait
+    fireEvent.click(screen.getByRole('button', { name: /Page Setup/i }));
+    const portraitBtn = screen.getByRole('button', { name: /Portrait/i });
+    fireEvent.click(portraitBtn);
+
+    // Verify warning banner appeared
+    await waitFor(() => {
+      expect(screen.getByText(/Page Boundary Warning/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Auto-fit components to margins/i })).toBeInTheDocument();
+    });
+
+    // Click auto-fit
+    fireEvent.click(screen.getByRole('button', { name: /Auto-fit components to margins/i }));
+
+    // Verify warning dismissed
+    await waitFor(() => {
+      expect(screen.queryByText(/Page Boundary Warning/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('supports PDF, Visual Document, and JSON view modes in preview modal', async () => {
+    renderWithProviders();
+
+    const previewBtn = screen.getByRole('button', { name: /^Preview$/i });
+    fireEvent.click(previewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Document Template Preview')).toBeInTheDocument();
+    });
+
+    // Switch to Visual Document
+    const visualDocBtn = screen.getByRole('button', { name: /Visual Document/i });
+    fireEvent.click(visualDocBtn);
+    expect(screen.getByText('Visual Document')).toBeInTheDocument();
+
+    // Switch to Data & Tokens
+    const dataTokensBtn = screen.getByRole('button', { name: /Data & Tokens/i });
+    fireEvent.click(dataTokensBtn);
+    await waitFor(() => {
+      expect(screen.getByText('Raw Layout & Component Hierarchy')).toBeInTheDocument();
+    });
+  });
 });

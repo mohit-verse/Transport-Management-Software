@@ -76,13 +76,27 @@ export const uploadAssetSchema = z.object({
   })
 });
 
+export const previewDynamicFieldBindingSchema = z.object({
+  field_definition_id: z.preprocess(
+    (val) => (val === '' || val === null ? undefined : val),
+    z.string().uuid().optional()
+  ),
+  binding_path: z.string().min(1).max(200),
+  display_label: z.string().max(200).nullable().optional(),
+  is_repeatable: z.boolean().optional().default(false),
+  default_value: z.string().nullable().optional()
+});
+
 export const previewTemplateSchema = z.object({
   body: z.object({
-    template_id: z.string().uuid().optional(),
+    template_id: z.preprocess(
+      (val) => (val === '' || val === null ? undefined : val),
+      z.string().uuid().optional()
+    ),
     template_type: z.enum(['INDIVIDUAL', 'CONSOLIDATED', 'MULTI_PAGE']).optional().default('CONSOLIDATED'),
     layout_json: z.record(z.any()).optional().default({}),
     components: z.array(componentSchema).optional().default([]),
-    dynamic_fields: z.array(dynamicFieldBindingSchema).optional().default([]),
+    dynamic_fields: z.array(previewDynamicFieldBindingSchema).optional().default([]),
     sample_data: z.record(z.any()).optional(),
     format: z.enum(['pdf', 'json']).optional().default('pdf')
   })

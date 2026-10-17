@@ -982,14 +982,22 @@ export const deleteBillTemplate = async (id: string): Promise<{ success: boolean
   return response.data;
 };
 
-export const previewBillTemplatePdf = async (data: {
+export interface PreviewTemplatePayload {
   template_id?: string;
   template_type?: string;
   layout_json?: Record<string, any>;
   components?: BillTemplateComponent[];
-  dynamic_fields?: DynamicFieldBinding[];
+  dynamic_fields?: Array<{
+    field_definition_id?: string;
+    binding_path: string;
+    display_label?: string | null;
+    is_repeatable?: boolean;
+    default_value?: string | null;
+  }>;
   sample_data?: Record<string, any>;
-}): Promise<Blob> => {
+}
+
+export const previewBillTemplatePdf = async (data: PreviewTemplatePayload): Promise<Blob> => {
   const response = await api.post(
     '/api/bill-templates/preview',
     { ...data, format: 'pdf' },
@@ -998,14 +1006,7 @@ export const previewBillTemplatePdf = async (data: {
   return response.data;
 };
 
-export const previewBillTemplateJson = async (data: {
-  template_id?: string;
-  template_type?: string;
-  layout_json?: Record<string, any>;
-  components?: BillTemplateComponent[];
-  dynamic_fields?: DynamicFieldBinding[];
-  sample_data?: Record<string, any>;
-}): Promise<{ success: boolean; data: any }> => {
+export const previewBillTemplateJson = async (data: PreviewTemplatePayload): Promise<{ success: boolean; data: any }> => {
   const response = await api.post('/api/bill-templates/preview', { ...data, format: 'json' });
   return response.data;
 };
